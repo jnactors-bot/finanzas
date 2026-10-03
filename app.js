@@ -166,7 +166,7 @@ function pintarFinanzas() {
   [[S(D.config.sueldo_neto), "sueldo"], [S(f.compromisos), "compromisos"], [S(f.libreMensual), "libre"]].forEach(([x, y]) => {
     const d = h("div"); d.append(h("b", "", x), h("span", "", y)); mini.append(d);
   });
-  mes.append(mini, h("div", "sub", "Compromisos = cuotas de tus deudas + el aporte de comida en casa. Lo libre es lo único que puedes gastar."));
+  mes.append(mini, h("div", "sub", "Sueldo = el neto de tu boleta (ya sin la planilla del GNB). Compromisos = cuotas que salen de tu cuenta + comida en casa. Lo libre es lo único que puedes gastar."));
   el.append(mes);
 
   if (f.plan.length) {
@@ -191,7 +191,7 @@ function pintarFinanzas() {
     const t = h("div", "t"); t.append(h("b", "", d.nombre));
     const bar = h("div", "track"); bar.style.height = "8px";
     const fill = h("div", "fill"); fill.style.width = Math.min(100, d.saldo / Math.max(1, f.total) * 100 * 3) + "%"; bar.append(fill);
-    const s = h("span", "", (d.cuota ? S(d.cuota) + "/mes · " : "sin cuota fija · ") + (d.fin ? "termina " + mesTxt(d.fin) : "sin fecha") + (d.auto ? " · automático" : ""));
+    const s = h("span", "", (d.cuota ? S(d.cuota) + "/mes · " : "sin cuota fija · ") + (d.fin ? "termina " + mesTxt(d.fin) : "sin fecha") + (d.planilla ? " · se descuenta por planilla" : d.auto ? " · automático" : ""));
     t.append(s, bar);
     row.append(t, h("div", "m", S(d.saldo)));
     row.onclick = async () => {
