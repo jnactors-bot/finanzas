@@ -17,7 +17,7 @@
   header { display:flex; justify-content:space-between; align-items:center; gap:10px; margin:4px 0 12px; }
   h1 { font-size:20px; margin:0; }
   .sub { color:var(--mut); font-size:13px; margin-top:2px; }
-  .icon-btn { background:var(--card); border:1px solid var(--line); color:var(--ink); border-radius:12px; padding:9px 12px; font-size:18px; cursor:pointer; }
+  .icon-btn { background:var(--card); border:1px solid var(--line); color:var(--ink); border-radius:12px; padding:9px 11px; font-size:17px; cursor:pointer; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:18px; padding:16px; margin-top:12px; }
   .card h2 { font-size:13px; letter-spacing:.06em; text-transform:uppercase; color:var(--mut); margin:0 0 10px; font-weight:600; }
   .estado { display:flex; gap:14px; align-items:center; border-width:2px; }
@@ -56,47 +56,74 @@
   .mov .m { font-weight:700; } .mov .m.rech { color:var(--rojo); } .mov .m.ing { color:var(--verde); }
   .chip { display:inline-block; padding:1px 7px; border-radius:20px; background:var(--card2); font-size:11px; margin-left:4px; }
   .banner { background:#12301f; border:1px solid var(--verde); }
+  .tabs { display:flex; gap:6px; margin-bottom:10px; }
+  .tabs button { flex:1; background:var(--card2); border:1px solid var(--line); border-radius:10px; padding:9px 4px; cursor:pointer; font-size:14px; color:var(--mut); }
+  .tabs button.on { background:var(--ac); color:#10140a; border-color:var(--ac); font-weight:700; }
+  .bolsa { padding:9px 0; border-top:1px solid var(--line); cursor:pointer; }
+  .bolsa:first-of-type { border-top:0; }
+  .bolsa .r { display:flex; justify-content:space-between; gap:8px; align-items:baseline; }
+  .bolsa b { font-weight:600; } .bolsa .m { font-weight:700; }
+  .bolsa .s { color:var(--mut); font-size:12px; }
+  .neg { color:var(--rojo); }
   .bar { position:fixed; left:0; right:0; bottom:0; background:#0b0f14ee; backdrop-filter:blur(8px); padding:10px 14px calc(10px + env(safe-area-inset-bottom)); border-top:1px solid var(--line); z-index:5; }
   .bar form { max-width:560px; margin:0 auto; display:flex; gap:8px; }
   input,select,button { font:inherit; color:inherit; }
   input,select { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:13px; width:100%; min-width:0; }
   button.p { background:var(--ac); color:#10140a; border:0; border-radius:12px; padding:0 18px; font-weight:700; cursor:pointer; white-space:nowrap; }
   button.s { background:var(--card2); border:1px solid var(--line); border-radius:12px; padding:12px 14px; cursor:pointer; }
+  button.btn { padding:13px 16px; }
   button:disabled { opacity:.5; }
   .sheet { position:fixed; inset:0; background:#000a; z-index:10; display:flex; align-items:flex-end; }
-  .sheet > div { background:var(--card); width:100%; max-width:560px; margin:0 auto; border-radius:20px 20px 0 0; padding:18px 16px calc(18px + env(safe-area-inset-bottom)); max-height:88vh; overflow:auto; }
+  .sheet > div { background:var(--card); width:100%; max-width:560px; margin:0 auto; border-radius:20px 20px 0 0; padding:18px 16px calc(18px + env(safe-area-inset-bottom)); max-height:90vh; overflow:auto; }
   .grid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin:12px 0; }
   .grid button { background:var(--card2); border:1px solid var(--line); border-radius:12px; padding:11px 4px; cursor:pointer; font-size:14px; }
   label { display:block; color:var(--mut); font-size:13px; margin:12px 0 4px; }
-  .row { display:flex; gap:8px; margin-top:10px; } .row > * { flex:1; }
+  .row { display:flex; gap:8px; margin-top:12px; } .row > * { flex:1; }
   .msg { margin:10px 0; font-size:14px; } .bad { color:var(--rojo); } .ok { color:var(--verde); } .mut { color:var(--mut); }
+  .menu { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:12px; }
+  .item { display:flex; gap:10px; align-items:center; padding:11px 0; border-top:1px solid var(--line); cursor:pointer; }
+  .item:first-of-type { border-top:0; }
+  .item .t { flex:1; min-width:0; } .item .t b { display:block; font-weight:600; }
+  .item .t span { color:var(--mut); font-size:12px; }
+  .d-line { display:flex; gap:8px; align-items:center; padding:8px 0; border-top:1px solid var(--line); font-size:14px; }
+  .d-line .c { flex:1; min-width:0; } .d-line select { width:auto; padding:7px; font-size:13px; }
+  .paso { color:var(--mut); font-size:12px; letter-spacing:.06em; text-transform:uppercase; }
   [hidden] { display:none !important; }
 </style>
 </head>
 <body>
 <main>
   <section id="setup" class="card" hidden>
-    <h2>Primera vez en este equipo</h2>
-    <label for="code">Código de acceso (el que pusiste como APP_TOKEN)</label>
+    <h2>Conectar esta app</h2>
+    <div class="sub">Tus datos viven en tu propia cuenta de Google. Aquí solo conectas la app con tu servidor privado.</div>
+    <label for="url">Dirección de tu servidor (termina en /exec)</label>
+    <input id="url" type="url" autocomplete="off" placeholder="https://script.google.com/macros/s/.../exec">
+    <label for="code">Tu código de acceso (el que pusiste como APP_TOKEN)</label>
     <input id="code" type="password" autocomplete="off">
-    <div class="row"><button class="p" id="saveCode" style="padding:13px">Guardar</button></div>
+    <div id="setupMsg" class="msg bad"></div>
+    <div class="row"><button class="p btn" id="saveCode">Guardar</button></div>
   </section>
 
   <section id="app" hidden>
     <header>
       <div><h1>💸 Mis finanzas</h1><div class="sub" id="ciclo">Cargando…</div></div>
-      <div style="display:flex;gap:8px"><button class="icon-btn" id="btnScan" title="Revisar correos">🔄</button><button class="icon-btn" id="btnCfg" title="Ajustes">⚙️</button></div>
+      <div style="display:flex;gap:6px">
+        <button class="icon-btn" id="btnScan" title="Revisar correos">🔄</button>
+        <button class="icon-btn" id="btnBoleta" title="Subir boleta">📄</button>
+        <button class="icon-btn" id="btnCfg" title="Ajustes">⚙️</button>
+      </div>
     </header>
     <div id="msg" class="msg" role="status"></div>
     <div id="banner"></div>
     <div id="estado"></div>
     <div id="hoy"></div>
+    <div id="presu"></div>
     <div id="linea"></div>
     <div id="donut"></div>
     <div id="consejos"></div>
     <div id="fin"></div>
     <div class="card"><h2>Movimientos</h2><div id="movs"></div></div>
-    <p class="sub" style="text-align:center;margin:16px 0"><a href="#" id="reset" style="color:inherit">Cambiar código</a></p>
+    <p class="sub" style="text-align:center;margin:16px 0"><a href="#" id="reset" style="color:inherit">Cambiar servidor o código</a></p>
   </section>
 </main>
 
@@ -114,23 +141,7 @@
   <div class="row"><button class="s" id="smBorrar">🗑 Borrar</button><button class="s" id="smCerrar">Cerrar</button></div>
 </div></div>
 
-<div class="sheet" id="sheetCfg" hidden><div>
-  <b style="font-size:18px">⚙️ Ajustes</b>
-  <label for="cfgDinero">Plata que tienes para este ciclo (S/)</label><input id="cfgDinero" type="number" inputmode="decimal" step="0.01">
-  <label for="cfgAhorro">Ahorro que quieres apartar (S/)</label><input id="cfgAhorro" type="number" inputmode="decimal" step="0.01">
-  <label for="cfgFijos">Gastos fijos que aún no pagaste (alquiler, servicios) (S/)</label><input id="cfgFijos" type="number" inputmode="decimal" step="0.01">
-  <label for="cfgSueldo">Tu sueldo neto (para detectar cuando te pagan) (S/)</label><input id="cfgSueldo" type="number" inputmode="decimal" step="0.01">
-  <label for="cfgUmbral">Avisarme si un gasto supera (S/)</label><input id="cfgUmbral" type="number" inputmode="decimal" step="1">
-  <label for="cfgAlertas">Avisos por correo y Calendar</label>
-  <select id="cfgAlertas"><option value="1">Activados</option><option value="0">Apagados</option></select>
-  <div class="row"><button class="p" id="cfgGuardar" style="padding:13px">Guardar</button><button class="s" id="cfgCerrar">Cerrar</button></div>
-  <div class="card" style="background:var(--card2)">
-    <h2>🎉 Ya me pagaron</h2>
-    <div class="sub">Empieza un ciclo nuevo desde hoy. Escribe cuánta plata tienes ahora en total.</div>
-    <label for="nuevoDinero">Plata total que tienes hoy (S/)</label><input id="nuevoDinero" type="number" inputmode="decimal" step="0.01">
-    <div class="row"><button class="p" id="btnNuevo" style="padding:13px">Empezar ciclo nuevo</button></div>
-  </div>
-</div></div>
+<div class="sheet" id="sheetForm" hidden><div id="formBox"></div></div>
 
 <script src="config.js"></script>
 <script src="app.js"></script>
