@@ -481,7 +481,7 @@ function abrirGuiaOtros() {
 function pintar() {
   const c = D.ciclo;
   $("ciclo").textContent = "Ciclo " + fecha(c.inicio) + " → " + fecha(c.ventana.hasta) + " · te pagan entre el " + parseInt(c.ventana.desde.slice(8), 10) + " y el " + parseInt(c.ventana.hasta.slice(8), 10);
-  pintarBanner(); pintarEstado(c); pintarHoy(c); pintarPresu(); pintarLinea(c); pintarDonut(c); pintarConsejos(); pintarFinanzas(); pintarMovs();
+  pintarBanner(); pintarEstado(c); pintarHoy(c); pintarIngresos(c); pintarPresu(); pintarLinea(c); pintarDonut(c); pintarConsejos(); pintarFinanzas(); pintarMovs();
 }
 
 function pintarBanner() {
@@ -492,6 +492,38 @@ function pintarBanner() {
   const bt = h("button", "p", "Empezar ciclo nuevo"); bt.style.cssText = "margin-top:10px;padding:11px 14px"; bt.onclick = abrirNuevoCiclo;
   card.append(h("div", "sub", "Pulsa para empezar un ciclo nuevo y decirme cuánta plata tienes."), bt);
   b.append(card);
+}
+
+function abrirRegistrarIngreso() {
+  const c = (D && D.config) || {};
+  formModal({
+    titulo: "Registrar plata que recibí", nota: "Suma lo que te entró (un pago extra, un préstamo, un regalo) a tu plata de hoy.",
+    campos: [
+      { k: "monto", label: "Monto recibido (S/)", tipo: "number", valor: "" },
+      { k: "nota", label: "¿De qué fue? (opcional)", valor: "", ph: "Ej.: me prestaron" },
+    ],
+    textoGuardar: "Sumar a mi plata",
+    onGuardar: async (v) => {
+      const m = Number(v.monto); if (!(m > 0)) throw new Error("Pon un monto mayor a 0");
+      await guardarYCerrar("config_set", { valores: { dinero_ciclo: Math.round((Number(c.dinero_ciclo || 0) + m) * 100) / 100 } }, "Sumé " + S2(m) + " a tu plata de hoy.");
+    },
+  });
+}
+
+function pintarIngresos(c) {
+  const el = $("ing"); el.replaceChildren();
+  const f = D.finanzas || {}; const cfg = D.config || {};
+  const card = h("div", "card"); card.append(h("h2", "", "💰 Ingresos"));
+  const fila = (ic, t, s, m, fn) => { const r = h("div", "ing-row"); const tt = h("div", "t"); tt.append(h("b", "", t), h("span", "", s)); r.append(h("div", "ic", ic), tt, h("div", "m", m)); if (fn) r.onclick = fn; return r; };
+  if (cfg.sueldo_neto > 0) card.append(fila("🏛️", "Mi sueldo", "llega entre el " + parseInt(c.ventana.desde.slice(8), 10) + " y el " + parseInt(c.ventana.hasta.slice(8), 10) + " · fijo", S(cfg.sueldo_neto), abrirBoleta));
+  (f.ingresos || []).forEach((i) => card.append(fila("✨", i.nombre, (i.fecha ? "hacia el " + fecha(i.fecha) : "sin fecha") + " · no seguro", S(i.min) + (i.max > i.min ? "–" + S(i.max) : ""), () => abrirIngreso((D.finanzas.ingresos || []).find((x) => x.nombre === i.nombre) || i, null))));
+  const tot = (cfg.sueldo_neto || 0) + (f.ingresos || []).reduce((a, i) => a + i.min, 0);
+  card.append(h("div", "sub", "Total que esperas: " + S(tot) + " (sueldo + lo mínimo de los extras)."));
+  const row = h("div", "row");
+  const b1 = h("button", "s btn", "➕ Ingreso esperado"); b1.onclick = () => abrirIngreso(null, null);
+  const b2 = h("button", "p btn", "💵 Ya recibí plata"); b2.onclick = abrirRegistrarIngreso;
+  row.append(b1, b2); card.append(row);
+  el.append(card);
 }
 
 function pintarEstado(c) {

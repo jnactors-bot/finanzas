@@ -89,6 +89,43 @@
   .d-line .c { flex:1; min-width:0; } .d-line select { width:auto; padding:7px; font-size:13px; }
   .paso { color:var(--mut); font-size:12px; letter-spacing:.06em; text-transform:uppercase; }
   [hidden] { display:none !important; }
+
+  /* ===== Diseño v2: más limpio y con color ===== */
+  :root { --bg:#0a0d1a; --card:#131830; --card2:#1c2342; --ink:#f3f5ff; --mut:#98a2c8; --line:#262e55;
+          --verde:#34d399; --amarillo:#fbbf24; --rojo:#fb7185; --ac:#7c5cff; --ac2:#22d3ee; --ink-ac:#fff; }
+  body { background:radial-gradient(900px 500px at 85% -10%,#2a1f6b55,transparent 60%),radial-gradient(700px 400px at -10% 10%,#0e4a6a44,transparent 60%),var(--bg); background-attachment:fixed; letter-spacing:.005em; }
+  h1 { font-size:22px; font-weight:800; letter-spacing:-.02em; }
+  .icon-btn { background:#ffffff0d; border:1px solid #ffffff1a; backdrop-filter:blur(6px); border-radius:14px; }
+  .card { background:linear-gradient(160deg,#171d3a,#10152b); border:1px solid #ffffff12; border-radius:24px; padding:18px; box-shadow:0 10px 30px #00000040; margin-top:14px; }
+  .card h2 { font-size:12px; letter-spacing:.1em; color:var(--mut); }
+  .estado { border-width:1px; }
+  .estado.verde { border-color:#34d39955; background:linear-gradient(135deg,#0d3a30,#10152b 75%); }
+  .estado.amarillo { border-color:#fbbf2455; background:linear-gradient(135deg,#40320c,#10152b 75%); }
+  .estado.rojo { border-color:#fb718555; background:linear-gradient(135deg,#481522,#10152b 75%); }
+  .luz { box-shadow:0 0 0 6px #ffffff10; }
+  .hoy { background:linear-gradient(135deg,#4a2fd1,#1fb6d6); border:0; color:#fff; padding:24px 18px; }
+  .hoy .num { font-size:56px; font-weight:800; }
+  .hoy .lab { color:#ffffffcc; }
+  .hoy .mini div { background:#ffffff22; backdrop-filter:blur(6px); border-radius:16px; }
+  .hoy .mini span { color:#ffffffcc; }
+  .mini div { background:#ffffff0d; border-radius:16px; }
+  .consejo { background:#ffffff0a; border:1px solid #ffffff10; border-radius:16px; }
+  .track { background:#ffffff12; } .track .fill { background:linear-gradient(90deg,var(--ac),var(--ac2)); opacity:1; border-radius:9px; }
+  .track .win { background:repeating-linear-gradient(45deg,#7c5cff55,#7c5cff55 4px,transparent 4px,transparent 8px); border-left-color:var(--ac2); }
+  .tabs button { background:#ffffff0d; border-color:#ffffff14; border-radius:14px; }
+  .tabs button.on { background:linear-gradient(135deg,var(--ac),var(--ac2)); color:#fff; border-color:transparent; }
+  button.p { background:linear-gradient(135deg,var(--ac),var(--ac2)); color:#fff; border-radius:14px; }
+  button.s { background:#ffffff0d; border-color:#ffffff14; border-radius:14px; }
+  input,select { background:#ffffff0a; border-color:#ffffff1a; border-radius:14px; }
+  .bar { background:#0a0d1ad9; border-top:1px solid #ffffff12; }
+  .ico { border-radius:14px; background:#ffffff0d; }
+  .banner { background:linear-gradient(135deg,#0d3a30,#10152b); border-color:#34d39966; }
+  .sheet > div { background:#131830; border-radius:26px 26px 0 0; border-top:1px solid #ffffff1a; }
+  .ing-row { display:flex; justify-content:space-between; gap:10px; align-items:center; padding:12px 0; border-top:1px solid #ffffff10; cursor:pointer; }
+  .ing-row:first-of-type { border-top:0; }
+  .ing-row .ic { width:40px; height:40px; border-radius:14px; display:grid; place-items:center; background:#34d39922; font-size:20px; flex:none; }
+  .ing-row .t { flex:1; min-width:0; } .ing-row .t b { display:block; font-weight:600; } .ing-row .t span { color:var(--mut); font-size:12px; }
+  .ing-row .m { font-weight:800; color:var(--verde); white-space:nowrap; }
 </style>
 </head>
 <body>
@@ -117,6 +154,7 @@
     <div id="banner"></div>
     <div id="estado"></div>
     <div id="hoy"></div>
+    <div id="ing"></div>
     <div id="presu"></div>
     <div id="linea"></div>
     <div id="donut"></div>
