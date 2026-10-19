@@ -699,7 +699,7 @@ function abrirWizard() {
     ],
     textoGuardar: "Siguiente",
     onGuardar: async (v) => {
-      D = await api("config_set", { valores: { dinero_ciclo: Number(v.dinero_ciclo || 0), ahorro: Number(v.ahorro || 0), fijos_total: Number(v.fijos_total || 0), ultimo_pago: new Date(Date.now() + 86400000).toISOString().slice(0, 10) } });
+      D = await api("config_set", { valores: { dinero_ciclo: Number(v.dinero_ciclo || 0), ahorro: Number(v.ahorro || 0), fijos_total: Number(v.fijos_total || 0), ultimo_pago: D.hoy || new Date(Date.now() - 5 * 3600000).toISOString().slice(0, 10) } });
       pintar(); paso3();
     },
     textoCerrar: "Después",
@@ -1088,6 +1088,19 @@ function pintarEstado(c) {
 function pintarHoy(c) {
   const el = $("hoy"); el.replaceChildren();
   if (c.estado === "sin_config") return;
+  if (c.estado === "esperando") {
+    const w = h("div", "card hoy");
+    w.append(cardHead("Tu pago está por llegar", ["Esa plata todavía no es tuya para gastar. Cuando llegue la fecha, la app empieza a contarla.", "Si la fecha no es correcta, toca «Corregir»."]));
+    const bd = h("div", "hoy-body"); const l = h("div", "hoy-l");
+    const est = h("span", "est"); est.append(h("i", "edot"), document.createTextNode("Llega el " + fecha(c.pagoEn)), ic("clock", "sm"));
+    const num = h("div", "big"); cnt(num, "esp", c.montoEsperado);
+    l.append(h("div", "sub", c.diasParaPago === 1 ? "Mañana te llega:" : "Te llega en " + c.diasParaPago + " días:"), num, est, h("div", "sub", "Hasta entonces, hoy tienes S/ 0 para gastar."));
+    bd.append(l); w.append(bd);
+    const r2 = h("div", "row"); r2.style.marginTop = "12px";
+    const b1 = btnIco("s", "pencil", "Corregir"); b1.onclick = abrirEditarPago;
+    const b2 = btnIco("p", "check-circle", "Ya me pagaron"); b2.onclick = abrirNuevoCiclo;
+    r2.append(b1, b2); w.append(r2); el.append(w); return;
+  }
   const card = h("div", "card hoy " + c.estado);
   card.append(cardHead("Disponible hoy", ["A este ritmo gastarás " + S(c.proyeccion) + " de " + S(c.presupuesto) + " (" + Math.round(c.ratio * 100) + "%).", "El anillo muestra cuánto falta del ciclo hasta tu pago. El número es lo que puedes gastar hoy sin pasarte."]));
   const [txt, icn] = ESTADO[c.estado] || ["", "info"];
