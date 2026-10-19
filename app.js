@@ -1,21 +1,22 @@
 const $ = (id) => document.getElementById(id);
-const K_CODE = "finanzas_codigo", K_URL = "finanzas_url";
-const lsGet = (k) => { try { return localStorage.getItem(k) || ""; } catch { return ""; } };
-const lsSet = (k, v) => { try { v ? localStorage.setItem(k, v) : localStorage.removeItem(k); } catch {} };
+const K_TOK = "finanzas_idtoken";
+const ssGet = (k) => { try { return sessionStorage.getItem(k) || ""; } catch { return ""; } };
+const ssSet = (k, v) => { try { v ? sessionStorage.setItem(k, v) : sessionStorage.removeItem(k); } catch {} };
 const RE_URL = /^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/;
-const urlPorDefecto = () => (window.SCRIPT_URL && RE_URL.test(window.SCRIPT_URL) ? window.SCRIPT_URL : "");
-const getUrl = () => lsGet(K_URL) || urlPorDefecto();
-const getCode = () => lsGet(K_CODE);
+const getUrl = () => (window.SCRIPT_URL && RE_URL.test(window.SCRIPT_URL) ? window.SCRIPT_URL : "");
+const CLIENT_ID = () => (window.GOOGLE_CLIENT_ID && window.GOOGLE_CLIENT_ID !== "PENDIENTE" ? window.GOOGLE_CLIENT_ID : "");
 
 const EMO = { comida: "🍔", super: "🛒", transporte: "🚌", salud: "💊", suscripciones: "📺", ocio: "🎮", formd: "🧵", hogar: "🏠", transferencias: "📲", efectivo: "💵", otros: "📌" };
-const COL = { comida: "#f59e0b", super: "#22c55e", transporte: "#3b82f6", salud: "#ef4444", suscripciones: "#a855f7", ocio: "#ec4899", formd: "#c6ff3d", hogar: "#14b8a6", transferencias: "#94a3b8", efectivo: "#84cc16", otros: "#64748b" };
+const COL = { comida: "#FFA62B", super: "#00E5A0", transporte: "#2D9CFF", salud: "#FF6B6B", suscripciones: "#8C6BFF", ocio: "#FF5FB5", formd: "#00D1E0", hogar: "#FF8A3D", transferencias: "#9DB4FF", efectivo: "#E6B8FF", otros: "#8FA3C8" };
 const NOMBRE = { comida: "Comida", super: "Super", transporte: "Transporte", salud: "Salud", suscripciones: "Suscrip.", ocio: "Ocio", formd: "FORMD", hogar: "Hogar", transferencias: "Yape/Plin", efectivo: "Efectivo", otros: "Otros" };
 const MES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
 
-let D = null, vistaPresu = "hoy", wizardMostrado = false;
+let D = null, ME = null, TOK = "", TOK_EXP = 0, esperaToken = null, gisIniciado = false, vistaPresu = "hoy", wizardMostrado = false;
 
-const S = (n) => "S/ " + Math.round(n).toLocaleString("es-PE");
-const S2 = (n) => "S/ " + Number(n).toLocaleString("es-PE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const mon = () => (D && D.config && D.config.moneda) || "S/";
+const M = (t) => String(t).replace(/\(S\/\)/g, "(" + mon() + ")");
+const S = (n) => mon() + " " + Math.round(n).toLocaleString("es-PE");
+const S2 = (n) => mon() + " " + Number(n).toLocaleString("es-PE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fecha = (s) => parseInt(s.slice(8, 10), 10) + " " + MES[parseInt(s.slice(5, 7), 10) - 1];
 const mesTxt = (m) => (/^\d{4}-\d{2}/.test(m) ? MES[parseInt(m.slice(5, 7), 10) - 1] + " " + m.slice(0, 4) : m);
 const dias = (a, b) => Math.round((new Date(b + "T12:00:00") - new Date(a + "T12:00:00")) / 86400000);
@@ -26,37 +27,179 @@ function h(tag, cls, text) {
   if (text !== undefined) e.textContent = text;
   return e;
 }
-function say(text, cls = "") { const m = $("msg"); m.textContent = text; m.className = "msg " + cls; }
+let sayT = null;
+function say(text, cls = "") { const m = $("msg"); m.textContent = text; m.className = "msg " + cls; clearTimeout(sayT); if (text) sayT = setTimeout(() => { m.textContent = ""; }, cls === "bad" ? 7000 : 3500); }
 
-async function api(action, extra = {}) {
+// ---------- identidad (Google Identity Services) ----------
+
+function jwt(t) {
+  try {
+    const b = t.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+    return JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(b), (c) => c.charCodeAt(0))));
+  } catch { return {}; }
+}
+const tokenValido = () => !!TOK && TOK_EXP - Date.now() > 60000;
+
+function guardarToken(t) {
+  TOK = t; TOK_EXP = (jwt(t).exp || 0) * 1000;
+  ssSet(K_TOK, t);
+}
+
+function cargarGis() {
+  return new Promise((ok, mal) => {
+    if (window.google && window.google.accounts && window.google.accounts.id) return ok();
+    const s = document.createElement("script");
+    s.src = "https://accounts.google.com/gsi/client"; s.async = true;
+    s.onload = () => ok(); s.onerror = () => mal(new Error("No pude cargar Google. Revisa tu internet."));
+    document.head.append(s);
+  });
+}
+
+function recibirToken(resp) {
+  if (!resp || !resp.credential) return;
+  guardarToken(resp.credential);
+  if (esperaToken) { const r = esperaToken.res; esperaToken = null; r(true); } else entrar();
+}
+
+function iniciarGis() {
+  if (gisIniciado) return;
+  window.google.accounts.id.initialize({ client_id: CLIENT_ID(), callback: recibirToken, auto_select: true, cancel_on_tap_outside: false });
+  gisIniciado = true;
+}
+
+// Pide un token nuevo en silencio. Devuelve true si llegó uno.
+function renovarToken() {
+  if (esperaToken) return esperaToken.p;
+  let res; const p = new Promise((r) => { res = r; });
+  esperaToken = { p, res };
+  const fin = (ok) => { if (esperaToken && esperaToken.p === p) { esperaToken = null; res(ok); } };
+  try {
+    iniciarGis();
+    window.google.accounts.id.prompt((n) => {
+      if ((n.isNotDisplayed && n.isNotDisplayed()) || (n.isSkippedMoment && n.isSkippedMoment()) || (n.isDismissedMoment && n.isDismissedMoment() && n.getDismissedReason && n.getDismissedReason() !== "credential_returned")) fin(false);
+    });
+  } catch { fin(false); }
+  setTimeout(() => fin(false), 10000);
+  return p;
+}
+
+function pantalla(n) {
+  ["login", "registro", "espera", "app"].forEach((k) => { $(k).hidden = k !== n; });
+  $("barra").hidden = n !== "app"; $("nav").hidden = n !== "app";
+  if (n !== "app") cerrarForm();
+}
+
+function mostrarLogin(msg, reintentar) {
+  pantalla("login");
+  $("loginMsg").textContent = msg || "";
+  $("loginReintentar").hidden = !reintentar;
+  const g = $("gbtn"); g.replaceChildren();
+  if (CLIENT_ID() && window.google && window.google.accounts && window.google.accounts.id) {
+    try {
+      iniciarGis();
+      window.google.accounts.id.renderButton(g, { theme: "filled_black", size: "large", text: "signin_with", shape: "pill", locale: "es", width: 260 });
+    } catch (e) { $("loginMsg").textContent = "No pude mostrar el botón de Google."; }
+  }
+}
+
+function cerrarSesion(msg) {
+  TOK = ""; TOK_EXP = 0; D = null; ME = null; wizardMostrado = false; ssSet(K_TOK, "");
+  try { window.google.accounts.id.disableAutoSelect(); } catch {}
+  mostrarLogin(msg);
+}
+
+async function api(action, extra = {}, reintento = false) {
+  if (!tokenValido() && !(await renovarToken())) { cerrarSesion("Tu sesión venció. Entra otra vez."); throw new Error("Tu sesión venció. Entra otra vez."); }
   // text/plain evita la consulta previa (CORS) que Apps Script no responde.
   const res = await fetch(getUrl(), {
     method: "POST",
     headers: { "content-type": "text/plain;charset=utf-8" },
-    body: JSON.stringify({ token: getCode(), action, ...extra }),
+    body: JSON.stringify({ idToken: TOK, action, ...extra }),
   });
   const data = await res.json().catch(() => ({}));
-  if (data.auth === false) { lsSet(K_CODE, ""); mostrar(); throw new Error("Código incorrecto. Escríbelo otra vez."); }
-  if (!res.ok || data.error) throw new Error(data.error || "Error " + res.status);
+  if (data.auth === false) {
+    TOK = ""; TOK_EXP = 0; ssSet(K_TOK, "");
+    if (!reintento && (await renovarToken())) return api(action, extra, true);
+    cerrarSesion("Tu sesión venció. Entra otra vez.");
+    throw new Error("Tu sesión venció. Entra otra vez.");
+  }
+  if (!res.ok || data.error) { const e = new Error(data.error || "Error " + res.status); if (data.estado) e.estado = data.estado; throw e; }
   return data;
 }
 
-function mostrar() {
-  const listo = !!getCode() && !!getUrl();
-  $("setup").hidden = listo;
-  $("app").hidden = !listo;
-  $("barra").hidden = !listo;
-  if (!listo) { $("url").value = getUrl(); return; }
-  cargar();
+async function iniciar() {
+  if (!getUrl()) return mostrarLogin("Falta la dirección del servidor en config.js (SCRIPT_URL).");
+  if (!CLIENT_ID()) return mostrarLogin("Falta configurar el acceso con Google (GOOGLE_CLIENT_ID en config.js).");
+  mostrarLogin("");
+  try { await cargarGis(); iniciarGis(); } catch (e) { return mostrarLogin(e.message, true); }
+  const t = ssGet(K_TOK);
+  if (t) { guardarToken(t); if (tokenValido()) return entrar(); }
+  mostrarLogin("");
+  if (await renovarToken()) entrar();
 }
+
+async function entrar() {
+  try { ME = await api("me"); rutear(ME); } catch (e) { if (!ME) mostrarLogin(e.message, false); }
+}
+
+function rutear(m) {
+  ME = m;
+  const p = jwt(TOK);
+  $("quien").textContent = m.email || p.email || "";
+  if (m.estado === "nuevo") {
+    pantalla("registro");
+    $("regEmail").value = p.email || ""; if (!$("regNombre").value) $("regNombre").value = p.name || "";
+    $("regMsg").textContent = "";
+  } else if (m.estado === "Pendiente" || m.estado === "Bloqueado") {
+    pantalla("espera");
+    const b = m.estado === "Bloqueado";
+    $("esperaIco").textContent = b ? "⛔" : "⏳";
+    $("esperaTit").textContent = b ? "Acceso denegado" : "Tu cuenta está en revisión";
+    $("esperaTxt").textContent = b ? "El administrador no te dio acceso a esta app. Si crees que es un error, escríbele." : "Te avisaremos cuando esté lista. Vuelve a revisar en un rato.";
+    $("esperaMsg").textContent = "";
+  } else if (m.estado === "Aprobado") {
+    pantalla("app"); aplicarRol(); cargar().catch(() => {});
+  } else mostrarLogin("No pude saber el estado de tu cuenta.");
+}
+
+function aplicarRol() {
+  const admin = !!(ME && ME.admin);
+  $("btnScan").hidden = !admin;
+  $("btnUsers").hidden = !admin;
+}
+
+$("regEnviar").onclick = async () => {
+  const nombre = $("regNombre").value.trim(), cel = $("regCel").value.replace(/[\s()+-]/g, ""), edad = Number($("regEdad").value);
+  const m = $("regMsg"); m.textContent = "";
+  if (nombre.length < 2) return void (m.textContent = "Escribe tu nombre.");
+  if (!/^\d{7,15}$/.test(cel)) return void (m.textContent = "Escribe un celular de 7 a 15 números.");
+  if (!(edad >= 14 && edad <= 100)) return void (m.textContent = "La edad debe estar entre 14 y 100.");
+  if (!$("regAcepto").checked) return void (m.textContent = "Marca la casilla para continuar.");
+  $("regEnviar").disabled = true;
+  try { rutear(await api("registrar", { nombre, celular: cel, edad, acepto: true })); } catch (e) { m.textContent = e.message; }
+  $("regEnviar").disabled = false;
+};
+$("esperaRevisar").onclick = async () => {
+  $("esperaRevisar").disabled = true;
+  try { rutear(await api("me")); } catch (e) { $("esperaMsg").textContent = e.message; }
+  $("esperaRevisar").disabled = false;
+};
+$("regSalir").onclick = $("esperaSalir").onclick = () => cerrarSesion("");
+$("salir").onclick = (ev) => { ev.preventDefault(); cerrarSesion(""); };
+$("loginReintentar").onclick = () => iniciar();
 
 async function cargar(accion = "dashboard", extra = {}) {
   try {
     D = await api(accion, extra);
     pintar();
+    if (ME && ME.admin && accion === "dashboard") contarPendientes();
     if (D.setup && !D.setup.hecho && !wizardMostrado) { wizardMostrado = true; abrirWizard(); }
     return D;
-  } catch (e) { say(e.message, "bad"); throw e; }
+  } catch (e) {
+    if (e.estado && e.estado !== "Aprobado") rutear({ ...(ME || {}), estado: e.estado });
+    else say(e.message, "bad");
+    throw e;
+  }
 }
 
 // ---------- ventanas con formularios ----------
@@ -70,7 +213,7 @@ function formModal(o) {
   if (o.nota) { const n = h("div", "sub", o.nota); n.style.margin = "4px 0 6px"; box.append(n); }
   const inputs = {};
   (o.campos || []).forEach((c) => {
-    box.append(h("label", "", c.label));
+    box.append(h("label", "", M(c.label)));
     let el;
     if (c.tipo === "select") {
       el = document.createElement("select");
@@ -153,10 +296,10 @@ function abrirDeuda(d, volver) {
     ],
     onGuardar: async (v) => {
       const saldo = Math.max(0, Number(v.saldo || 0) - Number(v.pagado || 0));
-      await guardarYCerrar("deuda_guardar", { original: d ? d.nombre : undefined, nombre: v.nombre, saldo, cuota: Number(v.cuota || 0), pago: v.pago, auto: v.auto, fin: v.fin, prioridad: Number(v.prioridad || 0), tea: v.tea, nota: v.nota }, "Deuda guardada.");
+      await guardarYCerrar("deuda_guardar", { original: d ? d.nombre : undefined, nombre: v.nombre, saldo, cuota: Number(v.cuota || 0), pago: v.pago, auto: v.auto, fin: v.fin, prioridad: Number(v.prioridad || 0), tea: v.tea, nota: v.nota }, "Deuda guardada ✔");
       if (volver) volver();
     },
-    onBorrar: d ? async () => { await guardarYCerrar("deuda_borrar", { nombre: d.nombre }, "Deuda borrada."); if (volver) volver(); } : null,
+    onBorrar: d ? async () => { await guardarYCerrar("deuda_borrar", { nombre: d.nombre }, "Deuda borrada ✔"); if (volver) volver(); } : null,
     nombreBorrar: d ? d.nombre : "",
     onCerrar: volver,
   });
@@ -328,7 +471,7 @@ function abrirBoleta() {
 function mostrarVistaBoleta(zona, r, err) {
   const cuadra = r.neto > 0 && Math.abs(r.percibos - r.aportes - r.descuentosFac - r.neto) < 0.05;
   zona.append(h("div", "msg " + (cuadra ? "ok" : "bad"), cuadra ? "✔ Los números cuadran: percibido − descuentos = neto." : "⚠ Los números no cuadran del todo. Revisa los montos antes de guardar."));
-  const campo = (lab, val, tipo) => { zona.append(h("label", "", lab)); const i = document.createElement("input"); i.type = tipo || "text"; if (tipo === "number") { i.step = "0.01"; i.inputMode = "decimal"; } i.value = val; zona.append(i); return i; };
+  const campo = (lab, val, tipo) => { zona.append(h("label", "", M(lab))); const i = document.createElement("input"); i.type = tipo || "text"; if (tipo === "number") { i.step = "0.01"; i.inputMode = "decimal"; } i.value = val; zona.append(i); return i; };
   const mes = campo("Mes de la boleta (AAAA-MM)", r.mes || new Date().toISOString().slice(0, 7));
   const neto = campo("Neto a pagar (lo que te cae) (S/)", r.neto || "", "number");
   const perc = campo("Total percibido (S/)", r.percibos || "", "number");
@@ -347,7 +490,7 @@ function mostrarVistaBoleta(zona, r, err) {
       const desc = r.descuentos.map((d, i) => ({ concepto: d.concepto, monto: d.monto, tipo: sels[i].value }));
       const res = await api("boleta_guardar", { mes: mes.value.trim(), neto: Number(neto.value), percibos: Number(perc.value || 0), aportes: desc.filter((d) => d.tipo === "ley").reduce((a, d) => a + d.monto, 0), descuentosTotal: desc.reduce((a, d) => a + d.monto, 0), descuentos: desc });
       D = res; pintar(); cerrarForm();
-      say("Boleta guardada. Tu neto ahora es " + S2(res.config.sueldo_neto) + "." + (res.ajustes && res.ajustes.length ? " " + res.ajustes.join(" · ") : ""), "ok");
+      say("Boleta guardada ✔", "ok");
     } catch (e) { err.textContent = e.message; }
     bg.disabled = false;
   };
@@ -357,7 +500,7 @@ function mostrarVistaBoleta(zona, r, err) {
 // ---------- ajustes, guía y asistente de inicio ----------
 
 function abrirCfg() {
-  const c = D.config;
+  const c = D.config; const admin = !!(ME && ME.admin);
   formModal({
     titulo: "⚙️ Ajustes",
     campos: [
@@ -368,18 +511,18 @@ function abrirCfg() {
       { k: "aporte_comida", label: "Aporte de comida en casa al mes (S/)", tipo: "number", valor: c.aporte_comida || 0 },
       { k: "meta_fondo", label: "Meta de fondo de emergencia (S/)", tipo: "number", valor: c.meta_fondo || "" },
       { k: "umbral_grande", label: "Avisarme si un gasto supera (S/)", tipo: "number", valor: c.umbral_grande || "" },
-      { k: "alertas", label: "Avisos por correo y Calendar", tipo: "select", opciones: [["1", "Activados"], ["0", "Apagados"]], valor: String(c.alertas) },
-    ],
+      { k: "alertas", label: "Avisos por correo y Calendar", tipo: "select", opciones: [["1", "Activados"], ["0", "Apagados"]], valor: String(c.alertas), solo: "admin" },
+    ].filter((x) => !x.solo || admin),
     extra: (box) => {
       const menu = h("div", "menu");
-      [["📄 Subir boleta", abrirBoleta], ["💳 Deudas", abrirDeudas], ["💰 Ingresos extra", abrirIngresos], ["🧮 Bolsas", abrirBolsas], ["🏦 Bancos", () => abrirBancos(abrirCfg)], ["🧭 Guía de inicio", abrirWizard], ["📘 Para otra persona", abrirGuiaOtros], ["🎉 Ya me pagaron", abrirNuevoCiclo]].forEach(([t, f]) => {
+      [["👤 Mi perfil", abrirPerfil], ["🎯 Mis metas", abrirMetas], ["📄 Subir boleta", abrirBoleta], ["💳 Deudas", abrirDeudas], ["💰 Ingresos extra", abrirIngresos], ["🧮 Bolsas", abrirBolsas], admin && ["🏦 Bancos", () => abrirBancos(abrirCfg)], admin && ["👥 Usuarios", abrirUsuarios], ["🧭 Guía de inicio", abrirWizard], ["📘 Cómo funciona", abrirGuiaOtros], ["🎉 Ya me pagaron", abrirNuevoCiclo]].filter(Boolean).forEach(([t, f]) => {
         const b = h("button", "s", t); b.onclick = f; menu.append(b);
       });
       box.append(menu);
     },
     onGuardar: async (v) => {
       const n = (k) => Number(v[k] || 0);
-      await guardarYCerrar("config_set", { valores: { dinero_ciclo: n("dinero_ciclo"), ahorro: n("ahorro"), fijos_total: n("fijos_total"), sueldo_neto: n("sueldo_neto"), aporte_comida: n("aporte_comida"), meta_fondo: n("meta_fondo"), umbral_grande: n("umbral_grande"), alertas: n("alertas") } }, "Ajustes guardados.");
+      await guardarYCerrar("config_set", { valores: { dinero_ciclo: n("dinero_ciclo"), ahorro: n("ahorro"), fijos_total: n("fijos_total"), sueldo_neto: n("sueldo_neto"), aporte_comida: n("aporte_comida"), meta_fondo: n("meta_fondo"), umbral_grande: n("umbral_grande"), ...(admin ? { alertas: n("alertas") } : {}) } }, "Ajustes guardados ✔");
     },
   });
 }
@@ -390,7 +533,7 @@ function abrirNuevoCiclo() {
     nota: "Empieza un ciclo nuevo desde hoy. Escribe cuánta plata tienes ahora en total, sumando lo que te cayó y lo que te sobró.",
     campos: [{ k: "dinero", label: "Plata total que tienes hoy (S/)", tipo: "number", valor: D.config.sueldo_neto ? Math.round(D.finanzas.libreMensual) : "" , ayuda: "Sugerencia: tu libre mensual (" + S(D.finanzas.libreMensual) + ") más lo que te sobró." }],
     textoGuardar: "Empezar ciclo nuevo",
-    onGuardar: async (v) => { if (v.dinero === "") throw new Error("Escribe cuánta plata tienes hoy."); await guardarYCerrar("nuevo_ciclo", { dinero: Number(v.dinero) }, "Listo, empezó tu ciclo nuevo."); },
+    onGuardar: async (v) => { if (v.dinero === "") throw new Error("Escribe cuánta plata tienes hoy."); await guardarYCerrar("nuevo_ciclo", { dinero: Number(v.dinero) }, "¡Ciclo nuevo! 🎉"); },
   });
 }
 
@@ -400,8 +543,10 @@ function abrirWizard() {
   const c = (D && D.config) || {};
   const sino = [["1", "Sí"], ["0", "No"]];
   const act = (c.bancos || "interbank,bn,bcp").split(",");
+  const admin = !!(ME && ME.admin); const N = admin ? 5 : 4;
+  const terminar = async () => { await api("config_set", { valores: { setup_hecho: 1 } }); await cargar(admin ? "scan" : "dashboard"); cerrarForm(); say("¡Todo listo! 🎉", "ok"); };
   const paso5 = () => formModal({
-    paso: "Paso 5 de 5", titulo: "Bancos que lee la app",
+    paso: "Paso 5 de " + N, titulo: "Bancos que lee la app",
     nota: "Solo lee los avisos de consumo que te llegan al correo. Nunca pide claves del banco.",
     campos: [
       { k: "interbank", label: "Interbank", tipo: "select", opciones: sino, valor: act.includes("interbank") ? "1" : "0" },
@@ -412,18 +557,18 @@ function abrirWizard() {
     onGuardar: async (v) => {
       const lista = ["interbank", "bn", "bcp"].filter((k) => v[k] === "1").join(",") || "ninguno";
       await api("config_set", { valores: { bancos: lista, setup_hecho: 1 } });
-      await cargar("scan"); cerrarForm(); say("Todo listo. Revisé tus correos.", "ok");
+      await cargar("scan"); cerrarForm(); say("¡Todo listo! 🎉", "ok");
     },
     textoCerrar: "Después",
   });
   const paso4 = () => formModal({
-    paso: "Paso 4 de 5", titulo: "Ingresos extra esperados",
+    paso: "Paso 4 de " + N, titulo: "Ingresos extra esperados",
     nota: "¿Esperas algún pago que no es fijo (trabajo extra, bono)? Anota el mínimo seguro. No cuentes con él para pagos con fecha fija.",
     extra: (box) => { const b = h("button", "s btn", "➕ Agregar un ingreso"); b.style.marginTop = "10px"; b.onclick = () => abrirIngreso(null, paso4); box.append(b); },
-    textoGuardar: "Siguiente", onGuardar: async () => { paso5(); }, textoCerrar: "Después",
+    textoGuardar: admin ? "Siguiente" : "Terminar", onGuardar: async () => { if (admin) paso5(); else await terminar(); }, textoCerrar: "Después",
   });
   const paso3 = () => formModal({
-    paso: "Paso 3 de 5", titulo: "Tus deudas",
+    paso: "Paso 3 de " + N, titulo: "Tus deudas",
     nota: "Agrega cada deuda con su saldo y cuota. Marca cuáles se descuentan por planilla y cuáles pagarás con un extra. Puedes dejarlo para después.",
     extra: (box) => {
       const b = h("button", "s btn", "➕ Agregar una deuda"); b.style.marginTop = "10px"; b.onclick = () => abrirDeuda(null, paso3);
@@ -432,7 +577,7 @@ function abrirWizard() {
     textoGuardar: "Siguiente", onGuardar: async () => { paso4(); }, textoCerrar: "Después",
   });
   const paso2 = () => formModal({
-    paso: "Paso 2 de 5", titulo: "Tu plata hoy",
+    paso: "Paso 2 de " + N, titulo: "Tu plata hoy",
     nota: "Cuenta solo lo que tienes ahora, sin lo que esperas que llegue.",
     campos: [
       { k: "dinero_ciclo", label: "Plata que tienes hoy (S/)", tipo: "number", valor: c.dinero_ciclo || "" },
@@ -447,7 +592,7 @@ function abrirWizard() {
     textoCerrar: "Después",
   });
   formModal({
-    paso: "Paso 1 de 5", titulo: "Tu sueldo y tus fechas", nota: TIPS,
+    paso: "Paso 1 de " + N, titulo: "Tu sueldo y tus fechas", nota: TIPS,
     campos: [
       { k: "sueldo_neto", label: "Sueldo neto, lo que te cae (S/)", tipo: "number", valor: c.sueldo_neto || "", ayuda: "O sube tu boleta con 📄 en Ajustes." },
       { k: "dia_pago_min", label: "Tu pago llega desde el día…", tipo: "number", valor: c.dia_pago_min || 17 },
@@ -464,40 +609,222 @@ function abrirWizard() {
 
 function abrirGuiaOtros() {
   const box = $("formBox"); box.replaceChildren();
-  box.append(h("b", "", "📘 Para otra persona"));
+  box.append(h("b", "", "📘 Cómo funciona"));
   const L = [
-    "Cada persona tiene su propio servidor privado en su cuenta de Google. Así nadie más ve tus movimientos, tu sueldo ni tus deudas.",
-    "Pasos: 1) copiar el programa de Apps Script que te comparta quien armó la app; 2) ejecutar «instalar» y dar permisos; 3) poner tu código APP_TOKEN en las propiedades; 4) publicar como aplicación web («Cualquiera», ejecutar como «Yo») y copiar la dirección /exec.",
-    "Luego abre esta misma página, pega tu dirección y tu código, y sigue el asistente de 5 pasos.",
-    "La app solo lee avisos de consumo del correo. Nunca te pide la clave del banco ni mueve dinero.",
+    "Entras con tu cuenta de Google. Cada persona tiene su propio Sheet privado, creado solo para ella: nadie más ve tus movimientos, tu sueldo ni tus deudas.",
+    "La primera vez te pedimos tus datos y el administrador aprueba tu cuenta. Después sigue el asistente de inicio (" + ((ME && ME.admin) ? "5" : "4") + " pasos).",
+    "En «Mi perfil» eliges tu moneda, tus propias categorías y tus metas de ahorro.",
+    "Los gastos los anotas en la barra de abajo («almuerzo 18»). La app nunca te pide la clave del banco ni mueve dinero.",
   ];
   L.forEach((t) => { const d = h("div", "consejo", t); box.append(d); });
   const row = h("div", "row"); const bc = h("button", "s btn", "Cerrar"); bc.onclick = () => { cerrarForm(); abrirCfg(); }; row.append(bc); box.append(row);
   $("sheetForm").hidden = false;
 }
 
+// ---------- perfil, metas y usuarios ----------
+
+const MONEDAS = ["S/", "$", "€", "Bs"];
+
+function abrirPerfil() {
+  const mActual = mon(); const esOtra = !MONEDAS.includes(mActual);
+  const p = (ME && ME.perfil) || {};
+  formModal({
+    titulo: "👤 Mi perfil",
+    nota: ((p.nombre || (ME && ME.nombre) || "") + " · " + ((ME && ME.email) || "")).replace(/^ · /, ""),
+    campos: [
+      { k: "moneda", label: "Moneda", tipo: "select", opciones: MONEDAS.map((x) => [x, x]).concat([["otro", "Otra…"]]), valor: esOtra ? "otro" : mActual },
+      { k: "otra", label: "Si elegiste «Otra», escríbela (máx. 5 letras)", valor: esOtra ? mActual : "", ph: "Ej.: COP" },
+      { k: "categorias", label: "Mis categorías propias (separadas por coma, máx. 10)", valor: (D.config.categorias || ""), ph: "mascotas, gym", ayuda: "Aparecen junto a las demás al clasificar un gasto." },
+    ],
+    extra: (box) => {
+      const b = h("button", "s btn", "🎯 Mis metas de ahorro"); b.style.marginTop = "10px"; b.onclick = abrirMetas; box.append(b);
+    },
+    onGuardar: async (v) => {
+      const moneda = v.moneda === "otro" ? v.otra.trim() : v.moneda;
+      if (!moneda || moneda.length > 5) throw new Error("Escribe una moneda de 1 a 5 letras.");
+      const cats = v.categorias.split(",").map((x) => x.trim().toLowerCase()).filter(Boolean);
+      if (cats.length > 10) throw new Error("Máximo 10 categorías.");
+      if (cats.some((x) => !/^[a-z0-9áéíóúñü ]+$/i.test(x))) throw new Error("Las categorías solo pueden tener letras, números y espacios.");
+      await api("perfil_guardar", { moneda, categorias: cats.join(",") });
+      await cargar("dashboard"); cerrarForm(); say("Perfil guardado.", "ok");
+    },
+    onCerrar: abrirCfg,
+  });
+}
+
+function abrirMeta(m, volver) {
+  formModal({
+    titulo: m ? m.nombre : "Nueva meta de ahorro",
+    nota: "Pon cuánto quieres juntar y cuánto llevas. Actualiza «llevo» cada vez que apartes plata.",
+    campos: [
+      { k: "nombre", label: "¿Para qué ahorras?", valor: m ? m.nombre : "", ph: "Ej.: Viaje, laptop" },
+      { k: "objetivo", label: "Cuánto quieres juntar (S/)", tipo: "number", valor: m ? m.objetivo : "" },
+      { k: "ahorrado", label: "Cuánto llevas (S/)", tipo: "number", valor: m ? m.ahorrado : 0 },
+      { k: "fecha", label: "Fecha meta (AAAA-MM-DD), opcional", valor: m ? m.fecha : "", ph: "2027-03-01" },
+    ],
+    onGuardar: async (v) => {
+      if (v.nombre.trim().length < 2) throw new Error("Escribe un nombre para la meta.");
+      if (!(Number(v.objetivo) > 0)) throw new Error("El objetivo debe ser mayor a 0.");
+      await api("meta_guardar", { original: m ? m.nombre : undefined, nombre: v.nombre.trim(), objetivo: Number(v.objetivo), ahorrado: Number(v.ahorrado || 0), fecha: v.fecha.trim() });
+      await cargar("dashboard"); cerrarForm(); say("Meta guardada.", "ok"); if (volver) volver();
+    },
+    onBorrar: m ? async () => { await api("meta_borrar", { nombre: m.nombre }); await cargar("dashboard"); cerrarForm(); say("Meta borrada.", "ok"); if (volver) volver(); } : null,
+    nombreBorrar: m ? m.nombre : "",
+    onCerrar: volver,
+  });
+}
+
+function abrirMetas(v) {
+  const back = typeof v === "function" ? v : v === null ? null : abrirCfg;
+  listaModal("🎯 Mis metas de ahorro", "Toca una para actualizar cuánto llevas.",
+    (D.metas || []).map((m) => ({ titulo: m.nombre, detalle: (m.fecha ? "para el " + fecha(m.fecha) + " · " : "") + Math.round(m.pct || 0) + "%", valor: S(m.ahorrado) + " / " + S(m.objetivo), onClick: () => abrirMeta(m, abrirMetas) })),
+    "➕ Nueva meta", () => abrirMeta(null, abrirMetas), back);
+}
+
+function pintarUsuarios(box, usuarios, err) {
+  box.replaceChildren();
+  box.append(h("b", "", "👥 Usuarios"));
+  const n = usuarios.filter((u) => u.estado === "Pendiente").length;
+  box.append(h("div", "sub", n ? n + (n === 1 ? " solicitud pendiente." : " solicitudes pendientes.") : "No hay solicitudes pendientes."));
+  usuarios.forEach((u) => {
+    const row = h("div", "urow");
+    const top = h("div", "r"); top.style.cssText = "display:flex;justify-content:space-between;gap:8px;align-items:baseline";
+    top.append(h("b", "", u.nombre || u.email), h("span", "chip est-" + u.estado, u.estado));
+    row.append(top, h("div", "sub", u.email + (u.celular ? " · " + u.celular : "") + (u.edad ? " · " + u.edad + " años" : "")));
+    if (u.email !== (ME && ME.email)) {
+      const bt = h("div", "bt");
+      [["Aprobado", "Aprobar"], ["Bloqueado", "Bloquear"], ["Pendiente", "Pendiente"]].filter(([e]) => e !== u.estado).forEach(([e, t]) => {
+        const b = h("button", e === "Aprobado" ? "p btn" : "s btn", t);
+        b.onclick = async () => {
+          b.disabled = true; err.textContent = "";
+          try { const r = await api("admin_estado", { email: u.email, estado: e }); pintarUsuarios(box, r.usuarios || [], err); actualizarBadge(r.usuarios || []); } catch (x) { err.textContent = x.message; b.disabled = false; }
+        };
+        bt.append(b);
+      });
+      row.append(bt);
+    }
+    box.append(row);
+  });
+  box.append(err);
+  const r = h("div", "row"); const bc = h("button", "s btn", "Cerrar"); bc.onclick = cerrarForm; r.append(bc); box.append(r);
+}
+
+function actualizarBadge(us) { const n = us.filter((u) => u.estado === "Pendiente").length; $("badge").textContent = n; $("badge").hidden = !n; }
+
+async function abrirUsuarios() {
+  if (!ME || !ME.admin) return;
+  const box = $("formBox"); box.replaceChildren(h("div", "sub", "Cargando…")); $("sheetForm").hidden = false;
+  const err = h("div", "msg bad");
+  try { const r = await api("admin_listar"); pintarUsuarios(box, r.usuarios || [], err); actualizarBadge(r.usuarios || []); } catch (e) { cerrarForm(); say(e.message, "bad"); }
+}
+
 // ---------- pantalla principal ----------
 
+const NS = "http://www.w3.org/2000/svg";
+const sv = (tag, attrs, parent) => { const e = document.createElementNS(NS, tag); Object.keys(attrs || {}).forEach((k) => e.setAttribute(k, attrs[k])); if (parent) parent.append(e); return e; };
+const BOLSA_COL = ["#00E5A0", "#2D9CFF", "#FFC83D", "#FF6B6B", "#8C6BFF", "#FF5FB5", "#00D1E0", "#FF8A3D"];
+let vista = "inicio";
+const vistaPorDefecto = "inicio";
+const metasFestejadas = new Set();
+
+function registrarCats() {
+  const lista = String((D.config && D.config.categorias) || "").split(",").map((x) => x.trim()).filter(Boolean);
+  lista.forEach((k) => {
+    if (!EMO[k]) EMO[k] = "🏷️";
+    if (!COL[k]) COL[k] = "#6FA8FF";
+    if (!NOMBRE[k]) NOMBRE[k] = k.charAt(0).toUpperCase() + k.slice(1);
+  });
+}
+
+async function contarPendientes() {
+  const b = $("badge");
+  if (!ME || !ME.admin) { b.hidden = true; return; }
+  try {
+    const r = await api("admin_listar");
+    const n = (r.usuarios || []).filter((u) => u.estado === "Pendiente").length;
+    b.textContent = n; b.hidden = !n;
+  } catch { b.hidden = true; }
+}
+
+// ---- piezas visuales reutilizables ----
+
+function info(titulo, texto) {
+  $("infoTit").textContent = titulo;
+  const b = $("infoTxt"); b.replaceChildren();
+  (Array.isArray(texto) ? texto : [texto]).forEach((t) => b.append(h("p", "", t)));
+  $("sheetInfo").hidden = false;
+}
+$("infoCerrar").onclick = () => { $("sheetInfo").hidden = true; };
+$("sheetInfo").onclick = (e) => { if (e.target === $("sheetInfo")) $("sheetInfo").hidden = true; };
+
+function ib(titulo, texto) {
+  const b = h("button", "ib", "ⓘ"); b.type = "button"; b.setAttribute("aria-label", "Más información: " + titulo);
+  b.onclick = (e) => { e.stopPropagation(); info(titulo, texto); };
+  return b;
+}
+
+function cardHead(emoji, titulo, infoTexto, extra) {
+  const hd = h("div", "ch"); hd.append(h("span", "ch-e", emoji), h("h2", "", titulo));
+  if (extra) hd.append(extra);
+  if (infoTexto) hd.append(ib(titulo, infoTexto));
+  return hd;
+}
+
+function ring(pct, o) {
+  o = o || {};
+  const size = o.size || 120, sw = o.stroke || 10, r = 50 - sw / 2;
+  const svg = sv("svg", { viewBox: "0 0 100 100", class: "ring " + (o.cls || ""), width: size, height: size, "aria-hidden": "true" });
+  sv("circle", { cx: 50, cy: 50, r, fill: "none", stroke: "rgba(255,255,255,.12)", "stroke-width": sw }, svg);
+  const p = Math.max(0, Math.min(100, pct));
+  const c = sv("circle", { cx: 50, cy: 50, r, fill: "none", stroke: o.color || "var(--ac)", "stroke-width": sw, "stroke-linecap": "round", pathLength: 100, class: "pr" }, svg);
+  c.style.strokeDasharray = p + " 100";
+  return svg;
+}
+
+function bar(pct, color, alto) {
+  const tr = h("div", "track"); if (alto) tr.style.height = alto + "px";
+  const f = h("div", "fill"); f.style.width = Math.max(0, Math.min(100, pct)) + "%"; if (color) f.style.background = color;
+  tr.append(f); return tr;
+}
+
+function confeti(host) {
+  if (window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const cols = ["#FFC83D", "#00E5A0", "#2D9CFF", "#FF6B6B", "#FF5FB5"];
+  for (let i = 0; i < 14; i++) {
+    const s = h("i", "cf"); s.style.setProperty("--dx", Math.round((Math.random() - 0.5) * 140) + "px"); s.style.setProperty("--dy", Math.round(-40 - Math.random() * 70) + "px");
+    s.style.background = cols[i % cols.length]; s.style.animationDelay = (i * 25) + "ms"; host.append(s);
+    setTimeout(() => s.remove(), 1600);
+  }
+}
+
+function irVista(v) {
+  vista = v; $("app").dataset.v = v;
+  document.querySelectorAll("#nav button[data-v]").forEach((b) => { const on = b.dataset.v === v; b.classList.toggle("on", on); if (on) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current"); });
+  window.scrollTo(0, 0);
+}
+document.querySelectorAll("#nav button[data-v]").forEach((b) => { b.onclick = () => irVista(b.dataset.v); });
+
 function pintar() {
+  registrarCats();
   const c = D.ciclo;
-  $("ciclo").textContent = "Ciclo " + fecha(c.inicio) + " → " + fecha(c.ventana.hasta) + " · te pagan entre el " + parseInt(c.ventana.desde.slice(8), 10) + " y el " + parseInt(c.ventana.hasta.slice(8), 10);
-  pintarBanner(); pintarEstado(c); pintarHoy(c); pintarIngresos(c); pintarPresu(); pintarLinea(c); pintarDonut(c); pintarConsejos(); pintarFinanzas(); pintarMovs();
+  $("ciclo").textContent = "📅 " + fecha(c.inicio) + " → " + fecha(c.ventana.hasta);
+  pintarBanner(); pintarEstado(c); pintarHoy(c); pintarIngresos(c); pintarMetas(); pintarPresu(); pintarLinea(c); pintarDonut(c); pintarConsejos(); pintarFinanzas(); pintarMovs();
+  try { pintarStats(); } catch (e) { $("stats").replaceChildren(); }
 }
 
 function pintarBanner() {
   const b = $("banner"); b.replaceChildren();
   if (!D.pagoProbable) return;
   const card = h("div", "card banner");
-  card.append(h("b", "", "🎉 Parece que ya te pagaron " + S2(D.pagoProbable.monto)));
-  const bt = h("button", "p", "Empezar ciclo nuevo"); bt.style.cssText = "margin-top:10px;padding:11px 14px"; bt.onclick = abrirNuevoCiclo;
-  card.append(h("div", "sub", "Pulsa para empezar un ciclo nuevo y decirme cuánta plata tienes."), bt);
-  b.append(card);
+  card.append(h("div", "ban-t", "🎉 ¡Te pagaron! " + S2(D.pagoProbable.monto)));
+  const bt = h("button", "p btn", "🚀 Ciclo nuevo"); bt.onclick = abrirNuevoCiclo;
+  card.append(bt); b.append(card);
 }
 
 function abrirRegistrarIngreso() {
   const c = (D && D.config) || {};
   formModal({
-    titulo: "Registrar plata que recibí", nota: "Suma lo que te entró (un pago extra, un préstamo, un regalo) a tu plata de hoy.",
+    titulo: "💵 Recibí plata", nota: "Suma lo que te entró (un pago extra, un préstamo, un regalo) a tu plata de hoy.",
     campos: [
       { k: "monto", label: "Monto recibido (S/)", tipo: "number", valor: "" },
       { k: "nota", label: "¿De qué fue? (opcional)", valor: "", ph: "Ej.: me prestaron" },
@@ -505,7 +832,7 @@ function abrirRegistrarIngreso() {
     textoGuardar: "Sumar a mi plata",
     onGuardar: async (v) => {
       const m = Number(v.monto); if (!(m > 0)) throw new Error("Pon un monto mayor a 0");
-      await guardarYCerrar("config_set", { valores: { dinero_ciclo: Math.round((Number(c.dinero_ciclo || 0) + m) * 100) / 100 } }, "Sumé " + S2(m) + " a tu plata de hoy.");
+      await guardarYCerrar("config_set", { valores: { dinero_ciclo: Math.round((Number(c.dinero_ciclo || 0) + m) * 100) / 100 } }, "Sumado ✔");
     },
   });
 }
@@ -513,192 +840,323 @@ function abrirRegistrarIngreso() {
 function pintarIngresos(c) {
   const el = $("ing"); el.replaceChildren();
   const f = D.finanzas || {}; const cfg = D.config || {};
-  const card = h("div", "card"); card.append(h("h2", "", "💰 Ingresos"));
-  const fila = (ic, t, s, m, fn) => { const r = h("div", "ing-row"); const tt = h("div", "t"); tt.append(h("b", "", t), h("span", "", s)); r.append(h("div", "ic", ic), tt, h("div", "m", m)); if (fn) r.onclick = fn; return r; };
-  if (cfg.sueldo_neto > 0) card.append(fila("🏛️", "Mi sueldo", "llega entre el " + parseInt(c.ventana.desde.slice(8), 10) + " y el " + parseInt(c.ventana.hasta.slice(8), 10) + " · fijo", S(cfg.sueldo_neto), abrirBoleta));
-  (f.ingresos || []).forEach((i) => card.append(fila("✨", i.nombre, (i.fecha ? "hacia el " + fecha(i.fecha) : "sin fecha") + " · no seguro", S(i.min) + (i.max > i.min ? "–" + S(i.max) : ""), () => abrirIngreso((D.finanzas.ingresos || []).find((x) => x.nombre === i.nombre) || i, null))));
-  const tot = (cfg.sueldo_neto || 0) + (f.ingresos || []).reduce((a, i) => a + i.min, 0);
-  card.append(h("div", "sub", "Total que esperas: " + S(tot) + " (sueldo + lo mínimo de los extras)."));
+  const card = h("div", "card");
+  card.append(cardHead("💰", "Ingresos", "Tu sueldo es fijo (🔒). Los ingresos extra no son seguros (🎲): la app cuenta solo el mínimo que esperas. Cuando llegue uno, usa «Recibí» para sumarlo a tu plata de hoy."));
+  const ext = f.ingresos || [];
+  const tot = Math.max(1, (cfg.sueldo_neto || 0) + ext.reduce((a, i) => a + i.min, 0));
+  const fila = (ic, col, t, s, monto, pct, fn) => {
+    const r = h("div", "irow"); const i = h("div", "bigico", ic); i.style.background = col + "30"; i.style.color = col;
+    const tt = h("div", "t"); const top = h("div", "top"); top.append(h("b", "", t), h("span", "m", monto));
+    tt.append(top, h("span", "s", s), bar(pct, col, 10)); r.append(i, tt); if (fn) r.onclick = fn; return r;
+  };
+  if (cfg.sueldo_neto > 0) card.append(fila("🏛️", "#00E5A0", "Sueldo", "🔒 " + parseInt(c.ventana.desde.slice(8), 10) + "–" + parseInt(c.ventana.hasta.slice(8), 10), S(cfg.sueldo_neto), cfg.sueldo_neto / tot * 100, abrirBoleta));
+  ext.forEach((i) => card.append(fila("✨", "#2D9CFF", i.nombre, "🎲 " + (i.fecha ? fecha(i.fecha) : "sin fecha") + (i.max > i.min ? " · hasta " + S(i.max) : ""), S(i.min), i.min / tot * 100, () => abrirIngreso((D.finanzas.ingresos || []).find((x) => x.nombre === i.nombre) || i, null))));
+  const tt = h("div", "total"); tt.append(h("span", "", "Esperas"), h("b", "", S(tot))); card.append(tt);
   const row = h("div", "row");
-  const b1 = h("button", "s btn", "➕ Ingreso esperado"); b1.onclick = () => abrirIngreso(null, null);
-  const b2 = h("button", "p btn", "💵 Ya recibí plata"); b2.onclick = abrirRegistrarIngreso;
+  const b1 = h("button", "s btn", "➕ Esperado"); b1.onclick = () => abrirIngreso(null, null);
+  const b2 = h("button", "p btn", "💵 Recibí"); b2.onclick = abrirRegistrarIngreso;
   row.append(b1, b2); card.append(row);
   el.append(card);
 }
 
+function pintarMetas() {
+  const el = $("metas"); el.replaceChildren();
+  const ms = D.metas || [];
+  const card = h("div", "card");
+  card.append(cardHead("🎯", "Metas", "Cada anillo muestra cuánto llevas de tu meta. Toca una meta para actualizar cuánto llevas."));
+  if (!ms.length) { const e = h("div", "vacio"); e.append(h("div", "vacio-e", "🎯"), h("div", "", "Crea tu primera meta")); card.append(e); }
+  const grid = h("div", "metas-grid");
+  ms.forEach((m) => {
+    const pct = Math.max(0, Math.min(100, Number(m.pct !== undefined ? m.pct : (m.objetivo > 0 ? m.ahorrado / m.objetivo * 100 : 0))));
+    const it = h("div", "meta"); const w = h("div", "mring");
+    w.append(ring(pct, { size: 96, stroke: 11, color: "#FFC83D" }), h("div", "mpct", Math.round(pct) + "%"));
+    if (pct >= 100) { w.classList.add("lograda"); w.append(h("span", "spark", "✨")); if (!metasFestejadas.has(m.nombre)) { metasFestejadas.add(m.nombre); setTimeout(() => confeti(w), 400); } }
+    it.append(w, h("b", "mn", m.nombre), h("span", "ms", S(m.ahorrado) + " / " + S(m.objetivo)));
+    it.onclick = () => abrirMeta(m, null); grid.append(it);
+  });
+  card.append(grid);
+  const b = h("button", "s btn", "➕ Nueva meta"); b.onclick = () => abrirMeta(null, null); card.append(b);
+  el.append(card);
+}
+
+const CARA = { verde: ["😄", "Vas bien"], amarillo: ["😐", "Vas ajustado"], rojo: ["😟", "Cuidado, no alcanza"] };
+
 function pintarEstado(c) {
   const el = $("estado"); el.replaceChildren();
-  const card = h("div", "card estado " + (c.estado === "sin_config" ? "" : c.estado));
-  const luz = h("div", "luz", { verde: "🟢", amarillo: "🟡", rojo: "🔴", sin_config: "⚙️" }[c.estado]);
-  const t = h("div");
-  if (c.estado === "sin_config") t.append(h("b", "", "Cuéntame cuánta plata tienes"), h("span", "", "Abre ⚙️ Ajustes y escribe tu plata de este ciclo para empezar."));
-  else {
-    const titulo = { verde: "Vas bien: te alcanza", amarillo: "Ojo: vas ajustado", rojo: "Cuidado: no te alcanzaría" }[c.estado];
-    t.append(h("b", "", titulo), h("span", "", "A este ritmo gastarás " + S(c.proyeccion) + " de " + S(c.presupuesto) + " (" + Math.round(c.ratio * 100) + "%)."));
-  }
-  card.append(luz, t); el.append(card);
+  if (c.estado !== "sin_config") return;
+  const card = h("div", "card empty-cfg");
+  card.append(h("div", "vacio-e", "⚙️"), h("b", "", "Cuenta tu plata"));
+  const b = h("button", "p btn", "⚙️ Empezar"); b.onclick = abrirCfg; card.append(b); el.append(card);
 }
 
 function pintarHoy(c) {
   const el = $("hoy"); el.replaceChildren();
   if (c.estado === "sin_config") return;
-  const card = h("div", "card hoy");
-  card.append(h("div", "lab", "Hoy puedes gastar"), h("div", "num", S(c.porDia)));
-  card.append(h("div", "lab", c.atrasado ? "Tu pago ya pasó: cuando llegue, pulsa «Ya me pagaron»." : "para llegar bien al día de pago"));
+  const card = h("div", "card hoy " + c.estado);
+  const [cara, frase] = CARA[c.estado] || ["🙂", ""];
+  const resto = Math.max(0, Math.min(100, (c.total - c.pasados) / Math.max(1, c.total) * 100));
+  const wrap = h("div", "hoy-ring");
+  wrap.append(ring(resto, { size: 240, stroke: 9, color: "#00E5A0", cls: "big" }));
+  const mid = h("div", "hoy-mid"); mid.append(h("div", "lab", "Hoy puedes gastar"), h("div", "num", S(c.porDia)), h("div", "lab2", "⏳ " + c.restan + (c.restan === 1 ? " día" : " días")));
+  wrap.append(mid, h("div", "cara", cara));
+  const top = h("div", "hoy-top");
+  top.append(h("span", "est-t", frase), ib("Tu estado", ["A este ritmo gastarás " + S(c.proyeccion) + " de " + S(c.presupuesto) + " (" + Math.round(c.ratio * 100) + "%).", "El anillo muestra cuánto falta del ciclo hasta tu pago. El número es lo que puedes gastar hoy sin pasarte."]));
+  card.append(top, wrap);
+  if (c.atrasado) { const b = h("button", "p btn", "🎉 Ya me pagaron"); b.onclick = abrirNuevoCiclo; card.append(b); }
   const mini = h("div", "mini");
-  [[S(c.disponible), "te quedan"], [c.restan + (c.restan === 1 ? " día" : " días"), "para el pago"], [S(c.gastado), "gastado"]].forEach(([a, b]) => { const d = h("div"); d.append(h("b", "", a), h("span", "", b)); mini.append(d); });
+  [["💼", S(c.disponible), "queda"], ["🧾", S(c.gastado), "gastado"], ["🗓️", c.restan + "d", "al pago"]].forEach(([i, a, b]) => { const d = h("div"); d.append(h("span", "mi", i), h("b", "", a), h("span", "ml", b)); mini.append(d); });
   card.append(mini); el.append(card);
 }
 
 function pintarPresu() {
   const el = $("presu"); el.replaceChildren();
   const P = D.presupuesto; if (!P) return;
-  const card = h("div", "card"); card.append(h("h2", "", "🧮 Cuánto gastar en cada cosa"));
+  const card = h("div", "card");
+  card.append(cardHead("🧮", "Bolsas", ["Cada bolsa es un tope para un tipo de gasto.", vistaPresu === "hoy" ? "Lo que tienes hoy, repartido hasta que caiga tu sueldo (" + P.dias + (P.dias === 1 ? " día" : " días") + ")." : "Lo que te queda libre cada mes después de tus cuotas, repartido por bolsa."]));
   const tabs = h("div", "tabs");
-  [["hoy", "Hasta el pago · " + S(P.baseHoy)], ["sueldo", "Con mi sueldo · " + S(P.baseSueldo)]].forEach(([k, t]) => {
+  [["hoy", "📅 Hasta el pago"], ["sueldo", "💼 Con sueldo"]].forEach(([k, t]) => {
     const b = h("button", vistaPresu === k ? "on" : "", t); b.onclick = () => { vistaPresu = k; pintarPresu(); }; tabs.append(b);
   });
   card.append(tabs);
   const lista = vistaPresu === "hoy" ? P.hoy : P.sueldo;
-  card.append(h("div", "sub", vistaPresu === "hoy" ? "Lo que tienes hoy, repartido hasta que caiga tu sueldo (" + P.dias + (P.dias === 1 ? " día" : " días") + ")." : "Lo que te queda libre cada mes después de tus cuotas, repartido por bolsa."));
-  lista.forEach((b) => {
-    const row = h("div", "bolsa"); const r = h("div", "r");
-    r.append(h("b", "", b.emoji + " " + b.nombre), h("span", "m" + (b.queda < 0 ? " neg" : ""), S(b.monto)));
-    row.append(r);
+  const grid = h("div", "bolsas");
+  lista.forEach((b, i) => {
+    const col = BOLSA_COL[i % BOLSA_COL.length];
+    const row = h("div", "bolsa"); const ico = h("div", "bigico", b.emoji || "💠"); ico.style.background = col + "30";
+    const t = h("div", "t"); const top = h("div", "top"); top.append(h("b", "", b.nombre));
     if (vistaPresu === "hoy") {
-      const tr = h("div", "track"); tr.style.height = "8px";
-      const g = h("div", "gasto"); g.style.width = Math.min(100, b.monto > 0 ? b.gastado / b.monto * 100 : (b.gastado > 0 ? 100 : 0)) + "%"; g.style.background = b.queda < 0 ? "var(--rojo)" : "var(--ac)"; tr.append(g);
-      row.append(tr, h("div", "s", "gastado " + S(b.gastado) + " · " + (b.queda < 0 ? "te pasaste " + S(-b.queda) : "queda " + S(b.queda))));
-    } else row.append(h("div", "s", b.pct + "% de lo libre"));
+      const neg = b.queda < 0;
+      top.append(h("span", "m" + (neg ? " neg" : ""), (neg ? "⚠️ -" + S(-b.queda) : "queda " + S(b.queda))));
+      t.append(top, bar(b.monto > 0 ? b.gastado / b.monto * 100 : (b.gastado > 0 ? 100 : 0), neg ? "#FF6B6B" : col, 14));
+    } else { top.append(h("span", "m", S(b.monto))); t.append(top, bar(b.pct, col, 14)); }
+    row.append(ico, t);
     row.onclick = () => { const full = P.bolsas.find((x) => x.nombre === b.nombre); if (full) abrirBolsa(full, () => {}); };
-    card.append(row);
+    grid.append(row);
   });
-  P.consejos.forEach((t) => card.append(h("div", "consejo", t)));
-  const bb = h("button", "s btn", "Editar bolsas"); bb.style.marginTop = "10px"; bb.onclick = abrirBolsas; card.append(bb);
+  card.append(grid);
+  const bb = h("button", "s btn", "✏️ Editar bolsas"); bb.onclick = abrirBolsas; card.append(bb);
   el.append(card);
 }
 
 function pintarLinea(c) {
   const el = $("linea"); el.replaceChildren();
   if (c.estado === "sin_config") return;
-  const card = h("div", "card"); card.append(h("h2", "", "Tu ciclo"));
+  const card = h("div", "card");
+  card.append(cardHead("📅", "Tu ciclo", "La barra de arriba son los días: hoy es el día " + c.pasados + " de " + c.total + ", y la franja rayada es tu ventana de pago. La de abajo es la plata gastada del presupuesto."));
   const total = c.total;
-  const tr = h("div", "track");
+  const tr = h("div", "track gruesa");
   const ini = Math.max(0, dias(c.inicio, c.ventana.desde)) / total * 100;
   const win = h("div", "win"); win.style.left = Math.min(ini, 98) + "%"; win.style.right = "0";
   const fill = h("div", "fill"); fill.style.width = (c.pasados / total * 100) + "%";
   const m = h("div", "hoy-m"); m.style.left = "calc(" + (c.pasados / total * 100) + "% - 1px)";
   tr.append(win, fill, m);
-  card.append(h("div", "sub", "Días: hoy es el día " + c.pasados + " de " + total + " (la franja rayada es tu ventana de pago)"), tr);
+  const l = h("div", "leyenda"); l.append(h("span", "", fecha(c.inicio)), h("b", "", "Día " + c.pasados + "/" + total), h("span", "", "~" + fecha(c.fin)));
+  card.append(tr, l);
   const pct = Math.min(100, c.gastado / Math.max(1, c.presupuesto) * 100);
-  const tr2 = h("div", "track"); const g = h("div", "gasto"); g.style.width = pct + "%";
-  g.style.background = c.estado === "rojo" ? "var(--rojo)" : c.estado === "amarillo" ? "var(--amarillo)" : "var(--verde)"; tr2.append(g);
-  card.append(h("div", "sub", "Plata gastada: " + Math.round(pct) + "% de " + S(c.presupuesto)), tr2);
-  const l = h("div", "leyenda"); l.append(h("span", "", fecha(c.inicio)), h("span", "", "~" + fecha(c.fin)));
-  card.append(l); el.append(card);
+  const col = c.estado === "rojo" ? "#FF6B6B" : c.estado === "amarillo" ? "#FFC83D" : "#00E5A0";
+  const tr2 = bar(pct, col, 16); tr2.classList.add("gruesa");
+  const l2 = h("div", "leyenda"); l2.append(h("span", "", "🧾 " + Math.round(pct) + "%"), h("span", "", S(c.presupuesto)));
+  card.append(tr2, l2); el.append(card);
 }
 
 function pintarDonut(c) {
   const el = $("donut"); el.replaceChildren();
   const keys = Object.keys(c.porCategoria).sort((a, b) => c.porCategoria[b] - c.porCategoria[a]);
-  const card = h("div", "card"); card.append(h("h2", "", "En qué se va tu plata"));
-  if (!keys.length) { card.append(h("div", "sub", "Aún no hay gastos en este ciclo.")); el.append(card); return; }
+  const card = h("div", "card"); card.append(cardHead("🍩", "Tus gastos", "Muestra en qué categorías se fue tu plata en este ciclo."));
+  if (!keys.length) { const e = h("div", "vacio"); e.append(h("div", "vacio-e", "🍩"), h("div", "", "Aún no hay gastos")); card.append(e); el.append(card); return; }
   const tot = keys.reduce((a, k) => a + c.porCategoria[k], 0);
-  const NS = "http://www.w3.org/2000/svg";
-  const svg = document.createElementNS(NS, "svg"); svg.setAttribute("viewBox", "0 0 42 42"); svg.setAttribute("class", "donut");
-  let off = 0;
-  keys.forEach((k) => {
-    const p = c.porCategoria[k] / tot * 100;
-    const ci = document.createElementNS(NS, "circle");
-    ci.setAttribute("cx", 21); ci.setAttribute("cy", 21); ci.setAttribute("r", 15.9155); ci.setAttribute("fill", "none");
-    ci.setAttribute("stroke", COL[k] || "#64748b"); ci.setAttribute("stroke-width", 6);
-    ci.setAttribute("stroke-dasharray", p + " " + (100 - p)); ci.setAttribute("stroke-dashoffset", -off);
-    svg.append(ci); off += p;
-  });
-  const wrap = h("div", "donut-wrap"); const list = h("div", "cats");
+  card.append(donutSvg(keys.map((k) => [k, c.porCategoria[k]]), tot, 200));
+  const list = h("div", "cats");
   keys.slice(0, 6).forEach((k) => {
-    const row = h("div"); const dot = h("span", "dot"); dot.style.background = COL[k] || "#64748b";
-    row.append(dot, h("span", "", (EMO[k] || "📌") + " " + (NOMBRE[k] || k)), h("span", "n", Math.round(c.porCategoria[k] / tot * 100) + "% · " + S(c.porCategoria[k])));
+    const row = h("div", "cat"); const ico = h("span", "cico", EMO[k] || "📌"); ico.style.background = (COL[k] || "#6FA8FF") + "33"; ico.style.boxShadow = "inset 0 0 0 2px " + (COL[k] || "#6FA8FF");
+    row.append(ico, h("span", "cn", NOMBRE[k] || k), h("b", "cp", Math.round(c.porCategoria[k] / tot * 100) + "%"), h("span", "cm", S(c.porCategoria[k])));
     list.append(row);
   });
-  wrap.append(svg, list); card.append(wrap); el.append(card);
+  card.append(list); el.append(card);
 }
 
+function donutSvg(pares, tot, size, centro) {
+  const wrap = h("div", "donut-box"); wrap.style.width = size + "px"; wrap.style.height = size + "px";
+  const svg = sv("svg", { viewBox: "0 0 42 42", class: "donut", width: size, height: size, "aria-hidden": "true" });
+  let off = 0;
+  pares.forEach(([k, v]) => {
+    const p = v / tot * 100;
+    const ci = sv("circle", { cx: 21, cy: 21, r: 15.9155, fill: "none", stroke: COL[k] || "#6FA8FF", "stroke-width": 6, "stroke-dasharray": Math.max(0, p - 0.6) + " " + (100 - Math.max(0, p - 0.6)), "stroke-dashoffset": -off }, svg);
+    ci.style.animationDelay = (off * 8) + "ms"; off += p;
+  });
+  wrap.append(svg);
+  const mid = h("div", "donut-mid"); mid.append(h("span", "", centro || "Total"), h("b", "", S(tot))); wrap.append(mid);
+  return wrap;
+}
+
+function emojiConsejo(t) {
+  const s = t.toLowerCase();
+  if (/deud|debes|cuota/.test(s)) return "💳"; if (/ahorr|fondo|guard/.test(s)) return "🐷"; if (/comid|almuerz|comer|delivery/.test(s)) return "🍔";
+  if (/sueldo|pago|cobr/.test(s)) return "💼"; if (/meta/.test(s)) return "🎯"; if (/gast|compr|superas/.test(s)) return "🛒"; if (/transp|taxi/.test(s)) return "🚌";
+  return "💡";
+}
+function cortoConsejo(t) {
+  const p = String(t).split(/[.;:!?]\s/)[0].replace(/[.]$/, "").split(/\s+/);
+  return p.length > 10 ? p.slice(0, 10).join(" ") + "…" : p.join(" ");
+}
+
+let consejosTodos = false;
 function pintarConsejos() {
   const el = $("consejos"); el.replaceChildren();
-  const card = h("div", "card"); card.append(h("h2", "", "💡 Consejos para ti"));
-  D.consejos.forEach((t) => card.append(h("div", "consejo", t)));
+  const lista = (D.consejos || []).concat((D.presupuesto && D.presupuesto.consejos) || []).filter(Boolean);
+  if (!lista.length) return;
+  const card = h("div", "card"); card.append(cardHead("💡", "Consejos"));
+  const ver = consejosTodos ? lista : lista.slice(0, 3);
+  ver.forEach((t) => {
+    const chip = h("button", "tip"); chip.type = "button"; chip.append(h("span", "tip-e", emojiConsejo(t)), h("span", "tip-t", cortoConsejo(t)));
+    chip.onclick = () => info("💡 Consejo", t); card.append(chip);
+  });
+  if (lista.length > 3) { const b = h("button", "s btn vermas", consejosTodos ? "Ver menos ▴" : "Ver más (" + (lista.length - 3) + ") ▾"); b.onclick = () => { consejosTodos = !consejosTodos; pintarConsejos(); }; card.append(b); }
   el.append(card);
 }
 
 function pintarFinanzas() {
-  const el = $("fin"); el.replaceChildren();
+  ["fin_mes", "fin_plan", "fin_deu", "fin_ev"].forEach((id) => $(id).replaceChildren());
   const f = D.finanzas; if (!f) return;
 
-  const mes = h("div", "card"); mes.append(h("h2", "", "📆 Tu mes en una mirada"));
+  const mes = h("div", "card");
+  mes.append(cardHead("📆", "Tu mes", "Sueldo = el neto de tu boleta (ya sin lo que se descuenta por planilla). Compromisos = cuotas que salen de tu cuenta + comida en casa. Lo libre es lo único que puedes gastar." + (D.boletas && D.boletas.length ? " Última boleta: " + mesTxt(D.boletas[0].mes) + " · neto " + S2(D.boletas[0].neto) + "." : "")));
   const mini = h("div", "mini");
-  [[S(D.config.sueldo_neto), "sueldo"], [S(f.compromisos), "compromisos"], [S(f.libreMensual), "libre"]].forEach(([x, y]) => { const d = h("div"); d.append(h("b", "", x), h("span", "", y)); mini.append(d); });
-  mes.append(mini, h("div", "sub", "Sueldo = el neto de tu boleta (ya sin lo que se descuenta por planilla). Compromisos = cuotas que salen de tu cuenta + comida en casa. Lo libre es lo único que puedes gastar."));
-  if (D.boletas && D.boletas.length) mes.append(h("div", "sub", "Última boleta: " + mesTxt(D.boletas[0].mes) + " · neto " + S2(D.boletas[0].neto)));
-  el.append(mes);
+  [["🏛️", S(D.config.sueldo_neto), "sueldo"], ["🔗", S(f.compromisos), "fijos"], ["🆓", S(f.libreMensual), "libre"]].forEach(([i, x, y]) => { const d = h("div"); d.append(h("span", "mi", i), h("b", "", x), h("span", "ml", y)); mini.append(d); });
+  mes.append(mini); $("fin_mes").append(mes);
 
   if (f.plan.length) {
-    const pl = h("div", "card"); pl.append(h("h2", "", "🎯 Plan para tu pago extra"));
-    const tot = f.ingresos.reduce((a, i) => a + i.min, 0);
-    pl.append(h("div", "sub", "Con " + S(tot) + " (lo mínimo que esperas), págalo en este orden:"));
+    const pl = h("div", "card"); const tot = f.ingresos.reduce((a, i) => a + i.min, 0);
+    pl.append(cardHead("🧭", "Plan extra", "Con " + S(tot) + " (lo mínimo que esperas), págalo en este orden. Cada deuda que termina te libera su cuota."));
     f.plan.forEach((p, i) => {
-      const row = h("div", "consejo"); row.style.cssText = "display:flex;justify-content:space-between;gap:10px";
-      row.append(h("span", "", (i + 1) + ". " + p.nombre), h("b", "", S(p.monto))); pl.append(row);
+      const row = h("div", "step"); row.append(h("span", "num-c", String(i + 1)), h("span", "sn", p.nombre), h("b", "", S(p.monto))); pl.append(row);
     });
-    if (f.sobra > 0) pl.append(h("div", "consejo", "Te sobrarían " + S(f.sobra) + ": guárdalos como fondo de emergencia."));
-    const bi = h("button", "s btn", "Editar ingresos extra"); bi.style.marginTop = "10px"; bi.onclick = abrirIngresos; pl.append(bi);
-    el.append(pl);
+    if (f.sobra > 0) { const r = h("div", "step"); r.append(h("span", "num-c", "🐷"), h("span", "sn", "Sobra (fondo)"), h("b", "", S(f.sobra))); pl.append(r); }
+    const bi = h("button", "s btn", "✏️ Ingresos extra"); bi.onclick = abrirIngresos; pl.append(bi);
+    $("fin_plan").append(pl);
   }
 
-  const dd = h("div", "card"); dd.append(h("h2", "", "💳 Tus deudas"));
-  const top = h("div", "hoy"); top.append(h("div", "lab", "Debes en total"), h("div", "num", S(f.total)));
-  top.querySelector(".num").style.fontSize = "34px"; top.style.marginBottom = "8px";
-  dd.append(top, h("div", "sub", "Toca una deuda para corregirla o anotar un pago."));
-  f.deudas.forEach((d) => {
-    const row = h("div", "mov");
-    const t = h("div", "t"); t.append(h("b", "", d.nombre));
-    const bar = h("div", "track"); bar.style.height = "8px";
-    const fill = h("div", "fill"); fill.style.width = Math.min(100, d.saldo / Math.max(1, f.total) * 100 * 3) + "%"; bar.append(fill);
-    t.append(h("span", "", (d.cuota ? S(d.cuota) + "/mes · " : "sin cuota fija · ") + (d.fin ? "termina " + mesTxt(d.fin) : "sin fecha") + (d.planilla ? " · se descuenta por planilla" : d.auto ? " · automático" : "")), bar);
-    row.append(t, h("div", "m", S(d.saldo)));
+  const dd = h("div", "card");
+  dd.append(cardHead("💳", "Deudas", "Toca una deuda para corregirla o anotar un pago."));
+  const top = h("div", "debe"); top.append(h("span", "", "Debes"), h("b", "", S(f.total))); dd.append(top);
+  f.deudas.forEach((d, i) => {
+    const col = BOLSA_COL[(i + 3) % BOLSA_COL.length];
+    const row = h("div", "irow"); const ic = h("div", "bigico", d.planilla ? "🏢" : "💳"); ic.style.background = col + "30";
+    const t = h("div", "t"); const tp = h("div", "top"); tp.append(h("b", "", d.nombre), h("span", "m", S(d.saldo)));
+    t.append(tp, h("span", "s", (d.cuota ? S(d.cuota) + "/mes" : "sin cuota") + (d.fin ? " · 🏁 " + mesTxt(d.fin) : "")), bar(Math.min(100, d.saldo / Math.max(1, f.total) * 100 * 3), col, 10));
+    row.append(ic, t);
     row.onclick = () => { const full = (D.deudasTodas || []).find((x) => x.nombre === d.nombre) || d; abrirDeuda(full, null); };
     dd.append(row);
   });
-  const bd = h("button", "s btn", "➕ Agregar o ver todas las deudas"); bd.style.marginTop = "10px"; bd.onclick = abrirDeudas; dd.append(bd);
-  el.append(dd);
+  const bd = h("button", "s btn", "➕ Deudas"); bd.onclick = abrirDeudas; dd.append(bd);
+  $("fin_deu").append(dd);
 
   if (f.evolucion.length > 1) {
-    const ev = h("div", "card"); ev.append(h("h2", "", "📈 Tu plata libre en el tiempo"));
+    const ev = h("div", "card"); ev.append(cardHead("📈", "Libre a futuro", "Cada deuda que termina te libera su cuota, y tu plata libre sube."));
     const max = Math.max(...f.evolucion.map((e) => e.libre), 1);
     f.evolucion.forEach((e) => {
-      const row = h("div"); row.style.margin = "8px 0";
-      const t2 = h("div", "leyenda"); t2.append(h("span", "", e.mes === "Hoy" ? "Hoy" : mesTxt(e.mes) + " · termina " + e.nombre), h("b", "", S(e.libre)));
-      const bar = h("div", "track"); bar.style.height = "10px"; const fl = h("div", "fill"); fl.style.width = (e.libre / max * 100) + "%"; bar.append(fl);
-      row.append(t2, bar); ev.append(row);
+      const row = h("div", "evrow"); const t2 = h("div", "leyenda"); t2.append(h("span", "", e.mes === "Hoy" ? "Hoy" : mesTxt(e.mes)), h("b", "", S(e.libre)));
+      row.append(t2, bar(e.libre / max * 100, "#2D9CFF", 12)); ev.append(row);
     });
-    ev.append(h("div", "sub", "Cada deuda que termina te libera su cuota."));
-    el.append(ev);
+    $("fin_ev").append(ev);
   }
 }
 
 function pintarMovs() {
   const el = $("movs"); el.replaceChildren();
-  if (!D.movimientos.length) { el.append(h("div", "sub", "Todavía no hay movimientos. Los avisos de tus bancos llegan solos; para efectivo usa la barra de abajo.")); return; }
+  if (!D.movimientos.length) { const e = h("div", "vacio"); e.append(h("div", "vacio-e", "🧾"), h("div", "", "Aún no hay movimientos")); el.append(e); return; }
   D.movimientos.forEach((m) => {
     const row = h("div", "mov");
-    row.append(h("div", "ico", m.tipo === "rechazo" ? "⛔" : m.tipo === "ingreso" ? "💰" : (EMO[m.categoria] || "📌")));
-    const t = h("div", "t"); t.append(h("b", "", m.comercio));
-    const s = h("span", "", fecha(m.fecha) + " " + m.hora + " · "); s.append(h("span", "chip", m.banco), h("span", "chip", m.tipo === "gasto" ? (NOMBRE[m.categoria] || m.categoria) : m.tipo));
-    t.append(s);
-    row.append(t, h("div", "m" + (m.tipo === "rechazo" ? " rech" : m.tipo === "ingreso" ? " ing" : ""), (m.tipo === "ingreso" ? "+" : "") + S2(m.monto)));
+    const rech = m.tipo === "rechazo", ing = m.tipo === "ingreso";
+    const col = rech ? "#FF6B6B" : ing ? "#00E5A0" : (COL[m.categoria] || "#6FA8FF");
+    const ic = h("div", "ico", rech ? "⛔" : ing ? "💰" : (EMO[m.categoria] || "📌")); ic.style.background = col + "33"; ic.style.boxShadow = "inset 0 0 0 2px " + col;
+    const t = h("div", "t"); t.append(h("b", "", m.comercio), h("span", "", fecha(m.fecha) + " · " + m.hora));
+    row.append(ic, t, h("div", "m" + (rech ? " rech" : ing ? " ing" : ""), (ing ? "▲ +" : rech ? "✖ " : "▼ −") + S2(m.monto)));
     row.onclick = () => abrirMov(m);
     el.append(row);
   });
+}
+
+// ---------- estadísticas ----------
+
+const MES_C = ["E", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D"];
+
+function pintarStats() {
+  const el = $("stats"); el.replaceChildren();
+  const E = D.estadisticas || {};
+  const meses = (E.meses || []).slice(-6), dh = (E.deudaHistorial || []).slice(-12), cm = (E.categoriasMes || []).filter((x) => x.monto > 0);
+
+  // 1. puntaje
+  const sc = h("div", "card stat-score");
+  sc.append(cardHead("📈", "Tu salud", E.mensaje ? [E.mensaje, "El puntaje va de 0 a 100: sube si gastas menos de lo que ganas y bajan tus deudas."] : "El puntaje va de 0 a 100: sube si gastas menos de lo que ganas y bajan tus deudas."));
+  if (typeof E.puntaje !== "number") { const e = h("div", "vacio"); e.append(h("div", "vacio-e", "📊"), h("div", "", "Aún faltan datos")); sc.append(e); }
+  else {
+    const p = Math.max(0, Math.min(100, E.puntaje)); const col = p >= 70 ? "#00E5A0" : p >= 40 ? "#FFC83D" : "#FF6B6B";
+    const flecha = { mejora: ["↗", "#00E5A0", "Mejorando"], igual: ["→", "#FFC83D", "Estable"], empeora: ["↘", "#FF6B6B", "Empeorando"] }[E.tendencia] || ["→", "#B8C7E6", "Estable"];
+    const w = h("div", "hoy-ring score"); w.append(ring(p, { size: 200, stroke: 12, color: col }));
+    const mid = h("div", "hoy-mid"); mid.append(h("div", "num", String(Math.round(p))), h("div", "lab", "de 100")); w.append(mid);
+    const tr = h("div", "trend"); tr.style.color = flecha[1]; tr.style.borderColor = flecha[1]; tr.append(h("span", "ta", flecha[0]), h("b", "", flecha[2]));
+    sc.append(w, tr);
+    if (E.mensaje) sc.append(h("div", "stat-msg", cortoConsejo(E.mensaje)));
+  }
+  el.append(sc);
+
+  // 2. barras ingreso vs gasto
+  const bc = h("div", "card");
+  bc.append(cardHead("📊", "Ganas vs gastas", "Barras azules: lo que ganaste cada mes. Barras coral: lo que gastaste."));
+  if (meses.length < 2) { const e = h("div", "vacio"); e.append(h("div", "vacio-e", "📊"), h("div", "", "Aún faltan meses")); bc.append(e); }
+  else {
+    const W = 340, Hh = 190, pad = 22, max = Math.max(1, ...meses.map((m) => Math.max(m.ingreso || 0, m.gasto || 0)));
+    const svg = sv("svg", { viewBox: "0 0 " + W + " " + Hh, class: "chart", role: "img", "aria-label": "Ingreso y gasto por mes" });
+    const gw = (W - pad) / meses.length, bw = Math.min(22, gw / 2 - 4);
+    [0.5, 1].forEach((f) => sv("line", { x1: pad, x2: W, y1: Hh - 26 - (Hh - 50) * f, y2: Hh - 26 - (Hh - 50) * f, stroke: "rgba(255,255,255,.1)", "stroke-dasharray": "3 4" }, svg));
+    meses.forEach((m, i) => {
+      const x0 = pad + gw * i + gw / 2;
+      [[m.ingreso || 0, "#2D9CFF", -bw - 1], [m.gasto || 0, "#FF6B6B", 1]].forEach(([v, col, dx], k) => {
+        const hh = Math.max(2, (Hh - 50) * v / max);
+        const r = sv("rect", { x: x0 + dx, y: Hh - 26 - hh, width: bw, height: hh, rx: 5, fill: col, class: "bgrow" }, svg); r.style.animationDelay = (i * 60 + k * 30) + "ms";
+      });
+      const lab = sv("text", { x: x0, y: Hh - 8, "text-anchor": "middle", class: "ax" }, svg); lab.textContent = MES_C[parseInt(String(m.mes).slice(5, 7), 10) - 1] || "";
+    });
+    bc.append(svg);
+    const lg = h("div", "legend"); lg.append(h("span", "lg b", "📥 Ganas"), h("span", "lg c", "📤 Gastas")); bc.append(lg);
+  }
+  el.append(bc);
+
+  // 3. deuda
+  const dc = h("div", "card");
+  dc.append(cardHead("💳", "Tu deuda", "Línea de cuánto debes en total a lo largo del tiempo. Si baja, vas bien."));
+  if (dh.length < 2) { const e = h("div", "vacio"); e.append(h("div", "vacio-e", "💳"), h("div", "", "Aún faltan datos")); dc.append(e); }
+  else {
+    const W = 340, Hh = 170, pad = 14, vals = dh.map((d) => d.total), mx = Math.max(...vals, 1), mn = Math.min(...vals, 0);
+    const X = (i) => pad + (W - 2 * pad) * i / (dh.length - 1), Y = (v) => 18 + (Hh - 46) * (1 - (v - mn) / Math.max(1, mx - mn));
+    const svg = sv("svg", { viewBox: "0 0 " + W + " " + Hh, class: "chart", role: "img", "aria-label": "Deuda total en el tiempo" });
+    const defs = sv("defs", {}, svg); const g = sv("linearGradient", { id: "gd", x1: 0, y1: 0, x2: 0, y2: 1 }, defs);
+    sv("stop", { offset: "0", "stop-color": "#FF6B6B", "stop-opacity": ".45" }, g); sv("stop", { offset: "1", "stop-color": "#FF6B6B", "stop-opacity": "0" }, g);
+    const pts = dh.map((d, i) => X(i) + "," + Y(d.total));
+    sv("polygon", { points: pad + "," + (Hh - 26) + " " + pts.join(" ") + " " + (W - pad) + "," + (Hh - 26), fill: "url(#gd)" }, svg);
+    sv("polyline", { points: pts.join(" "), fill: "none", stroke: "#FF6B6B", "stroke-width": 3.5, "stroke-linejoin": "round", "stroke-linecap": "round", class: "line" }, svg);
+    dh.forEach((d, i) => sv("circle", { cx: X(i), cy: Y(d.total), r: i === dh.length - 1 ? 6 : 3.5, fill: "#fff", stroke: "#FF6B6B", "stroke-width": 2.5 }, svg));
+    const l1 = sv("text", { x: pad, y: Hh - 6, class: "ax" }, svg); l1.textContent = fecha(dh[0].fecha);
+    const l2 = sv("text", { x: W - pad, y: Hh - 6, "text-anchor": "end", class: "ax" }, svg); l2.textContent = fecha(dh[dh.length - 1].fecha);
+    dc.append(svg);
+    const dif = dh[dh.length - 1].total - dh[0].total; const dl = h("div", "debe");
+    dl.append(h("span", "", dif <= 0 ? "▼ Bajó" : "▲ Subió"), h("b", dif <= 0 ? "ok" : "neg", S(Math.abs(dif)))); dc.append(dl);
+  }
+  el.append(dc);
+
+  // 4. categorías del mes
+  const cc = h("div", "card");
+  cc.append(cardHead("🍩", "Este mes", "En qué categorías gastaste este mes."));
+  if (cm.length < 1) { const e = h("div", "vacio"); e.append(h("div", "vacio-e", "🍩"), h("div", "", "Aún no hay gastos")); cc.append(e); }
+  else {
+    const ord = cm.slice().sort((a, b) => b.monto - a.monto); const tot = ord.reduce((a, x) => a + x.monto, 0);
+    cc.append(donutSvg(ord.map((x) => [x.categoria, x.monto]), tot, 160, "Mes"));
+    const lg = h("div", "chips");
+    ord.slice(0, 6).forEach((x) => { const c = h("span", "chp", (EMO[x.categoria] || "📌") + " " + Math.round(x.monto / tot * 100) + "%"); c.style.borderColor = COL[x.categoria] || "#6FA8FF"; lg.append(c); });
+    cc.append(lg);
+  }
+  el.append(cc);
 }
 
 let movActual = null;
@@ -707,7 +1165,8 @@ function abrirMov(m) {
   $("smTitulo").textContent = m.comercio;
   $("smInfo").textContent = S2(m.monto) + " · " + m.banco + " · " + fecha(m.fecha) + " " + m.hora;
   const g = $("smCats"); g.replaceChildren();
-  D.categorias.forEach((k) => {
+  const propias = String((D.config && D.config.categorias) || "").split(",").map((x) => x.trim()).filter(Boolean);
+  D.categorias.concat(propias.filter((x) => !D.categorias.includes(x))).forEach((k) => {
     const b = h("button", "", (EMO[k] || "") + " " + (NOMBRE[k] || k));
     if (k === m.categoria) b.style.borderColor = "var(--ac)";
     b.onclick = async () => { $("sheetMov").hidden = true; await cargar("setcat", { id: m.id, categoria: k, aprender: $("smAprender").checked }); };
@@ -720,8 +1179,13 @@ $("smCerrar").onclick = () => { $("sheetMov").hidden = true; };
 $("smBorrar").onclick = async () => { if (!movActual || !confirm("¿Borrar este movimiento?")) return; $("sheetMov").hidden = true; await cargar("delete", { id: movActual.id }); };
 
 $("btnCfg").onclick = () => { if (D) abrirCfg(); };
+$("navCfg").onclick = () => { if (D) abrirCfg(); };
 $("btnBoleta").onclick = () => { if (D) abrirBoleta(); };
-$("btnScan").onclick = async () => { say("Revisando tus correos…", "mut"); $("btnScan").disabled = true; try { await cargar("scan"); say("Correos revisados.", "ok"); } catch {} $("btnScan").disabled = false; };
+$("btnIng").onclick = () => { if (D) abrirRegistrarIngreso(); };
+$("btnMetas").onclick = () => { if (D) abrirMetas(null); };
+$("btnStats").onclick = () => irVista("stats");
+$("btnGasto").onclick = () => { $("texto").focus(); };
+$("btnScan").onclick = async () => { say("Revisando correos…", "mut"); $("btnScan").disabled = true; try { await cargar("scan"); say("Correos revisados ✔", "ok"); } catch {} $("btnScan").disabled = false; };
 
 $("formAdd").onsubmit = async (e) => {
   e.preventDefault();
@@ -731,13 +1195,7 @@ $("formAdd").onsubmit = async (e) => {
   $("btnAdd").disabled = false;
 };
 
-$("saveCode").onclick = () => {
-  const u = $("url").value.trim(), c = $("code").value.trim();
-  if (!RE_URL.test(u)) { $("setupMsg").textContent = "La dirección debe empezar con https://script.google.com/macros/s/ y terminar en /exec."; return; }
-  if (!c) { $("setupMsg").textContent = "Escribe tu código de acceso."; return; }
-  $("setupMsg").textContent = ""; lsSet(K_URL, u); lsSet(K_CODE, c); $("code").value = ""; mostrar();
-};
-$("reset").onclick = (ev) => { ev.preventDefault(); lsSet(K_CODE, ""); lsSet(K_URL, ""); mostrar(); };
-
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
-mostrar();
+$("btnUsers").onclick = () => abrirUsuarios();
+irVista(vistaPorDefecto);
+iniciar();
