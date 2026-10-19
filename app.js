@@ -361,24 +361,37 @@ function abrirIngresos() {
 // ---------- bolsas (presupuesto) ----------
 
 function abrirBolsa(b, volver) {
-  formModal({
+  const modo0 = b && b.modo === "pct" ? "pct" : "monto";
+  const val0 = b ? (modo0 === "monto" ? b.montoSueldo || (b.modo === "pct" ? 0 : 0) : b.pctSueldo) : 0;
+  const etiqueta = (m) => (m === "monto" ? "¿Cuánto gastas al mes en esto? (" + mon() + ")" : "¿Qué porcentaje de tu plata va aquí? (%)");
+  const box = formModal({
     titulo: b ? b.nombre : "Nueva bolsa",
-    nota: "Tú decides cuánto va a cada bolsa: un monto fijo en soles o un porcentaje. Los montos fijos se descuentan primero; el resto se reparte por porcentaje.",
+    nota: "Una bolsa es lo que separas para un tipo de gasto. Elige si la pones en soles o en porcentaje: la app hace el resto.",
     campos: [
-      { k: "nombre", label: "Nombre", valor: b ? b.nombre : "" },
-      { k: "emoji", label: "Símbolo (emoji)", valor: b ? b.emoji : "💠" },
-      { k: "modo", label: "¿Cómo la quieres fijar?", tipo: "select", opciones: [["pct", "Por porcentaje (%)"], ["monto", "Monto fijo (" + mon() + ")"]], valor: b ? b.modo || "pct" : "pct" },
-      { k: "pctHoy", label: "Porcentaje de lo que tienes hasta el pago (%)", tipo: "number", valor: b ? b.pctHoy : 0, ayuda: "Solo si elegiste porcentaje." },
-      { k: "pctSueldo", label: "Porcentaje de lo que te queda libre del sueldo (%)", tipo: "number", valor: b ? b.pctSueldo : 0 },
-      { k: "montoHoy", label: "Monto fijo hasta el pago (" + mon() + ")", tipo: "number", valor: b ? b.montoHoy || 0 : 0, ayuda: "Solo si elegiste monto fijo." },
-      { k: "montoSueldo", label: "Monto fijo al mes con tu sueldo (" + mon() + ")", tipo: "number", valor: b ? b.montoSueldo || 0 : 0 },
-      { k: "cats", label: "Categorías que cuentan aquí", valor: b ? b.cats.join(",") : "", ph: "transporte,comida", ayuda: "Opciones: " + Object.keys(NOMBRE).join(", ") },
+      { k: "nombre", label: "Nombre", valor: b ? b.nombre : "", ph: "Ej.: Mi carro" },
+      { k: "modo", label: "¿Cómo la quieres poner?", tipo: "select", opciones: [["monto", "En soles (" + mon() + " al mes)"], ["pct", "En porcentaje (%)"]], valor: modo0 },
+      { k: "valor", label: etiqueta(modo0), tipo: "number", valor: Math.round(val0 * 100) / 100 },
+      { k: "cats", label: "Qué gastos cuentan aquí", valor: b ? b.cats.join(",") : "", ph: "transporte,comida", ayuda: "Opciones: " + Object.keys(NOMBRE).join(", ") },
     ],
-    onGuardar: async (v) => { await guardarYCerrar("bolsa_guardar", { original: b ? b.nombre : undefined, nombre: v.nombre, emoji: v.emoji, modo: v.modo, pctHoy: Number(v.pctHoy || 0), pctSueldo: Number(v.pctSueldo || 0), montoHoy: Number(v.montoHoy || 0), montoSueldo: Number(v.montoSueldo || 0), cats: v.cats }, "Bolsa guardada."); if (volver) volver(); },
+    onGuardar: async (v) => {
+      const n = Number(v.valor || 0);
+      const dat = { original: b ? b.nombre : undefined, nombre: v.nombre, emoji: b ? b.emoji : "💠", modo: v.modo, cats: v.cats };
+      if (v.modo === "monto") Object.assign(dat, { montoSueldo: n, montoHoy: 0, pctHoy: 0, pctSueldo: 0 });
+      else Object.assign(dat, { pctHoy: b && b.modo === "pct" && n === b.pctSueldo ? b.pctHoy : n, pctSueldo: n, montoHoy: 0, montoSueldo: 0 });
+      await guardarYCerrar("bolsa_guardar", dat, "Bolsa guardada."); if (volver) volver();
+    },
     onBorrar: b ? async () => { await guardarYCerrar("bolsa_borrar", { nombre: b.nombre }, "Bolsa borrada."); if (volver) volver(); } : null,
     nombreBorrar: b ? b.nombre : "",
     onCerrar: volver,
   });
+  // Al cambiar entre soles y porcentaje, cambia solo la pregunta del monto.
+  const campos = box.querySelectorAll("input, select");
+  const sel = campos[1], num = campos[2];
+  if (sel && num) {
+    const lab = num.previousElementSibling;
+    sel.onchange = () => { if (lab) lab.textContent = etiqueta(sel.value); num.placeholder = sel.value === "monto" ? "Ej.: 300" : "Ej.: 25"; num.max = sel.value === "pct" ? "100" : ""; };
+    sel.onchange();
+  }
 }
 
 // "Mis gastos del mes": cada persona pone cuánto gasta al mes en cada cosa (comida, transporte, su carro, etc.).
