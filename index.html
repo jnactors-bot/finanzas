@@ -311,6 +311,17 @@
   .chip { display:inline-flex; align-items:center; gap:6px; padding:3px 10px; border-radius:999px; background:rgba(255,255,255,.06); font-size:12px; font-weight:500; }
   .chip.est-Aprobado { background:rgba(45,212,160,.1); color:var(--ac); } .chip.est-Pendiente { background:rgba(245,181,68,.1); color:var(--am); } .chip.est-Bloqueado { background:rgba(242,104,91,.1); color:var(--rojo); }
 
+
+  /* ---------- video "Cómo funciona" ---------- */
+  .vmodal { position:fixed; inset:0; z-index:60; display:flex; align-items:center; justify-content:center; padding:16px; background:rgba(4,6,9,.78); backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px); animation:fade .2s both; }
+  .vmodal[hidden] { display:none; }
+  .vbox { width:100%; max-width:960px; max-height:94vh; max-height:94dvh; overflow-y:auto; background:var(--s1); border:1px solid var(--line2); border-radius:18px; padding:16px 18px 18px; box-shadow:0 30px 90px rgba(0,0,0,.6); }
+  .vbox video { display:block; width:100%; aspect-ratio:16/9; max-height:72vh; background:#000; border-radius:12px; margin-top:12px; }
+  .vfoot { display:flex; flex-wrap:wrap; gap:8px; justify-content:space-between; align-items:center; margin-top:14px; color:var(--mut); font-size:12px; }
+  .vfoot .s { height:38px; font-size:13px; }
+  .vlink { margin-top:16px; }
+  .auth-card .row.vrow { margin-top:14px; }
+
   /* ---------- hojas modales ---------- */
   .sheet { position:fixed; inset:0; z-index:30; display:flex; align-items:flex-end; justify-content:center; background:rgba(4,6,9,.66); backdrop-filter:blur(5px); -webkit-backdrop-filter:blur(5px); animation:fade .2s both; }
   .sheet > div { width:100%; max-width:520px; background:var(--s1); border:1px solid var(--line2); border-bottom:0; border-radius:20px 20px 0 0; padding:12px 20px calc(20px + env(safe-area-inset-bottom)); max-height:92vh; max-height:92dvh; overflow-y:auto; overscroll-behavior:contain; animation:sube2 .3s var(--ease) both; box-shadow:0 -24px 70px rgba(0,0,0,.55); }
@@ -498,6 +509,7 @@
   <symbol id="i-bar-chart" viewBox="0 0 24 24"><path d="M5 20V10M12 20V4M19 20v-7"/></symbol>
   <symbol id="i-pie" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 9 9h-9Z"/><path d="M15 3.500A9 9 0 0 1 20.500 9H15Z"/></symbol>
   <symbol id="i-receipt" viewBox="0 0 24 24"><path d="M5 3.500v17l2.300-1.500 2.200 1.500 2.500-1.500 2.500 1.500 2.200-1.500L19 20.500v-17l-2.300 1.500L14.500 3.500 12 5 9.500 3.500 7.300 5Z"/><path d="M9 9.500h6M9 13h6"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.500"/><path d="M10 8.500v7l6-3.500Z"/></symbol>
 </defs></svg>
 
 <div id="auth">
@@ -508,6 +520,7 @@
     <div id="gbtn"></div>
     <div id="loginMsg" class="msg bad" style="text-align:center"></div>
     <div class="row"><button class="s" id="loginReintentar" hidden>Reintentar</button></div>
+    <div class="row vrow"><button class="s" type="button" data-video><svg class="ic sm"><use href="#i-play"/></svg>Ver cómo funciona</button></div>
     <div class="auth-foot"><svg class="ic sm"><use href="#i-lock"/></svg>Tus datos se guardan en un Sheet privado.</div>
   </section>
 
@@ -526,6 +539,7 @@
     <label class="chk"><input type="checkbox" id="regAcepto"> <span>Entiendo que mis datos se guardan en un Sheet privado creado para mí; el administrador de la app podría acceder técnicamente a él.</span></label>
     <div id="regMsg" class="msg bad"></div>
     <div class="row"><button class="p" id="regEnviar">Enviar solicitud</button><button class="s" id="regSalir">Salir</button></div>
+    <div class="row vrow"><button class="s" type="button" data-video><svg class="ic sm"><use href="#i-play"/></svg>Ver cómo funciona</button></div>
   </section>
 
   <section id="espera" class="auth-card" hidden>
@@ -534,6 +548,7 @@
     <p class="auth-s sub" id="esperaTxt">Te avisaremos cuando esté lista. Vuelve a revisar en un rato.</p>
     <div id="esperaMsg" class="msg bad" style="text-align:center"></div>
     <div class="row"><button class="p" id="esperaRevisar">Revisar de nuevo</button><button class="s" id="esperaSalir">Salir</button></div>
+    <div class="row vrow"><button class="s" type="button" data-video><svg class="ic sm"><use href="#i-play"/></svg>Ver cómo funciona</button></div>
   </section>
 </div>
 
@@ -601,7 +616,7 @@
   <div class="cap" style="margin-top:18px">Categoría</div>
   <div class="grid" id="smCats" style="margin-top:10px"></div>
   <label class="chk" style="margin:0 0 4px"><input type="checkbox" id="smAprender"> <span>Recordar para este comercio</span></label>
-  <div class="row"><button class="s" id="smBorrar"><svg class="ic"><use href="#i-trash"/></svg>Borrar</button><button class="s" id="smCerrar">Cerrar</button></div>
+  <div class="row"><button class="s" id="smEditar"><svg class="ic"><use href="#i-pencil"/></svg>Editar</button><button class="s" id="smBorrar"><svg class="ic"><use href="#i-trash"/></svg>Borrar</button><button class="s" id="smCerrar">Cerrar</button></div>
 </div></div>
 
 <div class="sheet" id="sheetAdd" hidden><div>
@@ -623,6 +638,14 @@
   <div id="infoTxt"></div>
   <div class="row"><button class="p" id="infoCerrar">Entendido</button></div>
 </div></div>
+
+<div class="vmodal" id="vidModal" role="dialog" aria-modal="true" aria-labelledby="vidTit" hidden>
+  <div class="vbox">
+    <div class="sh-head"><h3 class="sh-title" id="vidTit">Cómo funciona Finanzas</h3><button class="ib" id="vidX" type="button" aria-label="Cerrar"><svg class="ic"><use href="#i-x"/></svg></button></div>
+    <video id="vidV" controls playsinline preload="metadata" poster="como-funciona.jpg" src="como-funciona.mp4">Tu navegador no puede reproducir este video.</video>
+    <div class="vfoot"><span>Dura menos de un minuto. Los datos del video son de ejemplo.</span><button class="s" id="vidGuia" type="button" hidden>Leer la guía</button></div>
+  </div>
+</div>
 
 <script src="config.js"></script>
 <script src="app.js"></script>

@@ -363,15 +363,18 @@ function abrirIngresos() {
 function abrirBolsa(b, volver) {
   formModal({
     titulo: b ? b.nombre : "Nueva bolsa",
-    nota: "Cada bolsa es un tope para un tipo de gasto. Los porcentajes de cada columna deben sumar 100.",
+    nota: "Tú decides cuánto va a cada bolsa: un monto fijo en soles o un porcentaje. Los montos fijos se descuentan primero; el resto se reparte por porcentaje.",
     campos: [
       { k: "nombre", label: "Nombre", valor: b ? b.nombre : "" },
       { k: "emoji", label: "Símbolo (emoji)", valor: b ? b.emoji : "💠" },
-      { k: "pctHoy", label: "% de lo que tienes hasta el pago", tipo: "number", valor: b ? b.pctHoy : 0 },
-      { k: "pctSueldo", label: "% de lo que te queda libre del sueldo", tipo: "number", valor: b ? b.pctSueldo : 0 },
+      { k: "modo", label: "¿Cómo la quieres fijar?", tipo: "select", opciones: [["pct", "Por porcentaje (%)"], ["monto", "Monto fijo (" + mon() + ")"]], valor: b ? b.modo || "pct" : "pct" },
+      { k: "pctHoy", label: "Porcentaje de lo que tienes hasta el pago (%)", tipo: "number", valor: b ? b.pctHoy : 0, ayuda: "Solo si elegiste porcentaje." },
+      { k: "pctSueldo", label: "Porcentaje de lo que te queda libre del sueldo (%)", tipo: "number", valor: b ? b.pctSueldo : 0 },
+      { k: "montoHoy", label: "Monto fijo hasta el pago (" + mon() + ")", tipo: "number", valor: b ? b.montoHoy || 0 : 0, ayuda: "Solo si elegiste monto fijo." },
+      { k: "montoSueldo", label: "Monto fijo al mes con tu sueldo (" + mon() + ")", tipo: "number", valor: b ? b.montoSueldo || 0 : 0 },
       { k: "cats", label: "Categorías que cuentan aquí", valor: b ? b.cats.join(",") : "", ph: "transporte,comida", ayuda: "Opciones: " + Object.keys(NOMBRE).join(", ") },
     ],
-    onGuardar: async (v) => { await guardarYCerrar("bolsa_guardar", { original: b ? b.nombre : undefined, nombre: v.nombre, emoji: v.emoji, pctHoy: Number(v.pctHoy || 0), pctSueldo: Number(v.pctSueldo || 0), cats: v.cats }, "Bolsa guardada."); if (volver) volver(); },
+    onGuardar: async (v) => { await guardarYCerrar("bolsa_guardar", { original: b ? b.nombre : undefined, nombre: v.nombre, emoji: v.emoji, modo: v.modo, pctHoy: Number(v.pctHoy || 0), pctSueldo: Number(v.pctSueldo || 0), montoHoy: Number(v.montoHoy || 0), montoSueldo: Number(v.montoSueldo || 0), cats: v.cats }, "Bolsa guardada."); if (volver) volver(); },
     onBorrar: b ? async () => { await guardarYCerrar("bolsa_borrar", { nombre: b.nombre }, "Bolsa borrada."); if (volver) volver(); } : null,
     nombreBorrar: b ? b.nombre : "",
     onCerrar: volver,
@@ -381,7 +384,7 @@ function abrirBolsa(b, volver) {
 function abrirBolsas() {
   const bs = D.presupuesto.bolsas;
   listaModal("Tus bolsas", "Toca una para cambiar cuánto le toca.",
-    bs.map((b) => ({ titulo: b.nombre, detalle: b.cats.join(", ") || "sin categorías", valor: b.pctHoy + "% · " + b.pctSueldo + "%", onClick: () => abrirBolsa(b, abrirBolsas) })),
+    bs.map((b) => ({ titulo: b.nombre, detalle: b.cats.join(", ") || "sin categorías", valor: b.modo === "monto" ? S(b.montoHoy) + " · " + S(b.montoSueldo) + "/mes" : b.pctHoy + "% · " + b.pctSueldo + "%", onClick: () => abrirBolsa(b, abrirBolsas) })),
     "Nueva bolsa", () => abrirBolsa(null, abrirBolsas), abrirCfg);
 }
 
@@ -524,7 +527,8 @@ function abrirCfg() {
   formModal({
     titulo: "Ajustes",
     campos: [
-      { k: "dinero_ciclo", label: "Plata que tienes para este ciclo (S/)", tipo: "number", valor: c.dinero_ciclo || "" },
+      { k: "dinero_ciclo", label: "Plata que tienes para este ciclo (" + mon() + ")", tipo: "number", valor: c.dinero_ciclo || "", ayuda: "Si te equivocaste, corrígela aquí." },
+      { k: "ultimo_pago", label: "Fecha en que empezó este ciclo, cuando te pagaron (AAAA-MM-DD)", valor: c.ultimo_pago || "" },
       { k: "ahorro", label: "Ahorro que quieres apartar (S/)", tipo: "number", valor: c.ahorro || "" },
       { k: "fijos_total", label: "Gastos fijos que aún no pagaste este ciclo (S/)", tipo: "number", valor: c.fijos_total || "" },
       { k: "sueldo_neto", label: "Tu sueldo neto (lo que te cae) (S/)", tipo: "number", valor: c.sueldo_neto || "", ayuda: "Lo más fácil es subir tu boleta con «Subir boleta»." },
@@ -535,14 +539,14 @@ function abrirCfg() {
     ].filter((x) => !x.solo || admin),
     extra: (box) => {
       const menu = h("div", "menu");
-      [["user", "Mi perfil", abrirPerfil], ["target", "Mis metas", abrirMetas], ["file-text", "Subir boleta", abrirBoleta], ["wallet", "Deudas", abrirDeudas], ["banknote", "Ingresos extra", abrirIngresos], ["coins", "Bolsas", abrirBolsas], admin && ["building", "Bancos", () => abrirBancos(abrirCfg)], admin && ["users", "Usuarios", abrirUsuarios], ["compass", "Guía de inicio", abrirWizard], ["book", "Cómo funciona", abrirGuiaOtros], ["check-circle", "Ya me pagaron", abrirNuevoCiclo], ["log-out", "Cerrar sesión", () => { cerrarForm(); cerrarSesion(""); }]].filter(Boolean).forEach(([i, t, f]) => {
+      [["user", "Mi perfil", abrirPerfil], ["target", "Mis metas", abrirMetas], ["file-text", "Subir boleta", abrirBoleta], ["wallet", "Deudas", abrirDeudas], ["banknote", "Ingresos extra", abrirIngresos], ["coins", "Bolsas", abrirBolsas], admin && ["building", "Bancos", () => abrirBancos(abrirCfg)], admin && ["users", "Usuarios", abrirUsuarios], ["compass", "Guía de inicio", abrirWizard], ["play", "Cómo funciona", () => abrirVideo(true)], ["check-circle", "Ya me pagaron", abrirNuevoCiclo], ["log-out", "Cerrar sesión", () => { cerrarForm(); cerrarSesion(""); }]].filter(Boolean).forEach(([i, t, f]) => {
         const b = h("button", ""); b.type = "button"; b.append(ic(i), h("span", "", t), ic("chevron-right", "chv")); b.onclick = f; menu.append(b);
       });
       box.append(menu);
     },
     onGuardar: async (v) => {
       const n = (k) => Number(v[k] || 0);
-      await guardarYCerrar("config_set", { valores: { dinero_ciclo: n("dinero_ciclo"), ahorro: n("ahorro"), fijos_total: n("fijos_total"), sueldo_neto: n("sueldo_neto"), aporte_comida: n("aporte_comida"), meta_fondo: n("meta_fondo"), umbral_grande: n("umbral_grande"), ...(admin ? { alertas: n("alertas") } : {}) } }, "Ajustes guardados");
+      await guardarYCerrar("config_set", { valores: { dinero_ciclo: n("dinero_ciclo"), ...(/^\d{4}-\d{2}-\d{2}$/.test(String(v.ultimo_pago || "")) ? { ultimo_pago: v.ultimo_pago } : {}), ahorro: n("ahorro"), fijos_total: n("fijos_total"), sueldo_neto: n("sueldo_neto"), aporte_comida: n("aporte_comida"), meta_fondo: n("meta_fondo"), umbral_grande: n("umbral_grande"), ...(admin ? { alertas: n("alertas") } : {}) } }, "Ajustes guardados");
     },
   });
 }
@@ -551,9 +555,12 @@ function abrirNuevoCiclo() {
   formModal({
     titulo: "Ya me pagaron",
     nota: "Empieza un ciclo nuevo desde hoy. Escribe cuánta plata tienes ahora en total, sumando lo que te cayó y lo que te sobró.",
-    campos: [{ k: "dinero", label: "Plata total que tienes hoy (S/)", tipo: "number", valor: D.config.sueldo_neto ? Math.round(D.finanzas.libreMensual) : "" , ayuda: "Sugerencia: tu libre mensual (" + S(D.finanzas.libreMensual) + ") más lo que te sobró." }],
+    campos: [
+      { k: "dinero", label: "Plata total que tienes hoy (" + mon() + ")", tipo: "number", valor: D.config.sueldo_neto ? Math.round(D.finanzas.libreMensual) : "", ayuda: "Sugerencia: tu libre mensual (" + S(D.finanzas.libreMensual) + ") más lo que te sobró." },
+      { k: "fecha", label: "Fecha en que te pagaron (AAAA-MM-DD)", valor: D.hoy || new Date().toISOString().slice(0, 10), ayuda: "Si te equivocaste, vuelve a abrir esto o usa Ajustes para corregir la fecha y el monto." },
+    ],
     textoGuardar: "Empezar ciclo nuevo",
-    onGuardar: async (v) => { if (v.dinero === "") throw new Error("Escribe cuánta plata tienes hoy."); await guardarYCerrar("nuevo_ciclo", { dinero: Number(v.dinero) }, "¡Ciclo nuevo!"); },
+    onGuardar: async (v) => { if (v.dinero === "") throw new Error("Escribe cuánta plata tienes hoy."); await guardarYCerrar("nuevo_ciclo", { dinero: Number(v.dinero), fecha: v.fecha }, "¡Ciclo nuevo!"); },
   });
 }
 
@@ -918,15 +925,16 @@ function pintarBanner() {
 function abrirRegistrarIngreso() {
   const c = (D && D.config) || {};
   formModal({
-    titulo: "Recibí plata", nota: "Suma lo que te entró (un pago extra, un préstamo, un regalo) a tu plata de hoy.",
+    titulo: "Recibí plata", nota: "Anota lo que te entró (un pago extra, un préstamo, un regalo). Queda en tu lista y lo puedes corregir después.",
     campos: [
-      { k: "monto", label: "Monto recibido (S/)", tipo: "number", valor: "" },
+      { k: "monto", label: "Monto recibido (" + mon() + ")", tipo: "number", valor: "" },
+      { k: "fecha", label: "Fecha en que te entró (AAAA-MM-DD)", valor: D.hoy || new Date().toISOString().slice(0, 10), ayuda: "Si todavía no te cae, pon la fecha de cuando te caerá: se suma ese día." },
       { k: "nota", label: "¿De qué fue? (opcional)", valor: "", ph: "Ej.: me prestaron" },
     ],
-    textoGuardar: "Sumar a mi plata",
+    textoGuardar: "Guardar ingreso",
     onGuardar: async (v) => {
       const m = Number(v.monto); if (!(m > 0)) throw new Error("Pon un monto mayor a 0");
-      await guardarYCerrar("config_set", { valores: { dinero_ciclo: Math.round((Number(c.dinero_ciclo || 0) + m) * 100) / 100 } }, "Sumado a tu plata");
+      await guardarYCerrar("add", { tipo: "ingreso", monto: m, comercio: (v.nota || "").trim() || "Ingreso", fecha: v.fecha }, "Ingreso guardado");
     },
   });
 }
@@ -1009,6 +1017,7 @@ function pintarHoy(c) {
   const bl = h("div", "hoy-bar"); const bt = h("div", "blk-t"); bt.append(h("span", "", "Presupuesto usado"), h("b", "", Math.round(pct) + "%"));
   const tr2 = bar(pct, col); tr2.classList.add("gruesa");
   const lg2 = h("div", "leyenda"); lg2.append(h("span", "", S(c.gastado) + " gastado"), h("span", "", "de " + S(c.presupuesto))); bl.append(bt, tr2, lg2); card.append(bl);
+  if (c.programado > 0) { const pg = h("div", "sub", "Reservado para gastos de los próximos días: " + S(c.programado)); pg.style.marginTop = "8px"; card.append(pg); }
   const mini = h("div", "mini");
   [["Queda", c.disponible, "m_q", S], ["Gastado", c.gastado, "m_g", S], ["Al pago", c.restan, "m_p", (n) => Math.round(n) + " d"]].forEach(([lab, v, k, f]) => { const d = h("div"); const b = h("b"); cnt(b, k, v, f); d.append(h("span", "ml", lab), b); mini.append(d); });
   card.append(mini); el.append(card);
@@ -1369,6 +1378,26 @@ function abrirMov(m) {
   $("sheetMov").hidden = false;
 }
 $("smCerrar").onclick = $("smX").onclick = () => { $("sheetMov").hidden = true; };
+$("smEditar").onclick = () => {
+  if (!movActual) return;
+  const m = movActual; $("sheetMov").hidden = true;
+  const esIng = m.tipo === "ingreso";
+  const propias = String((D.config && D.config.categorias) || "").split(",").map((x) => x.trim()).filter(Boolean);
+  const cats = D.categorias.concat(propias.filter((x) => !D.categorias.includes(x)));
+  formModal({
+    titulo: esIng ? "Corregir ingreso" : "Corregir gasto",
+    nota: "Cambia lo que te equivocaste: el monto, la fecha o el nombre.",
+    campos: [
+      { k: "comercio", label: "Nombre", valor: m.comercio },
+      { k: "monto", label: "Monto (" + mon() + ")", tipo: "number", valor: m.monto },
+      { k: "fecha", label: "Fecha (AAAA-MM-DD)", valor: m.fecha, ayuda: "Ej.: " + (D.hoy || "2026-10-20") + ".  Si pones una fecha de mañana, queda reservado como gasto programado." },
+      ...(esIng ? [] : [{ k: "categoria", label: "Categoría", tipo: "select", opciones: cats.map((k) => [k, NOMBRE[k] || k]), valor: m.categoria }]),
+    ],
+    onGuardar: async (v) => {
+      await guardarYCerrar("mov_editar", { id: m.id, comercio: v.comercio, monto: v.monto, fecha: v.fecha, ...(esIng ? {} : { categoria: v.categoria }) }, "Cambios guardados");
+    },
+  });
+};
 $("smBorrar").onclick = async () => { if (!movActual || !confirm("¿Borrar este movimiento?")) return; $("sheetMov").hidden = true; await cargar("delete", { id: movActual.id }); say("Movimiento borrado", "ok"); };
 
 // ---------- registrar un gasto (hoja con teclado) y barra rápida ----------
@@ -1419,8 +1448,29 @@ $("btnScan").onclick = async () => { say("Revisando correos…", "mut"); $("btnS
 $("btnUsers").onclick = () => abrirUsuarios();
 $("infoCerrar").onclick = $("infoX").onclick = () => { $("sheetInfo").hidden = true; };
 
+// ---------- video "Cómo funciona" ----------
+
+function abrirVideo(conGuia) {
+  const m = $("vidModal"); if (!m) return;
+  $("vidGuia").hidden = !conGuia;
+  m.hidden = false;
+  try { $("vidX").focus({ preventScroll: true }); } catch {}
+}
+function cerrarVideo() {
+  const m = $("vidModal"); if (!m || m.hidden) return false;
+  const v = $("vidV"); try { v.pause(); } catch {}
+  m.hidden = true; return true;
+}
+document.querySelectorAll("[data-video]").forEach((b) => { b.onclick = () => abrirVideo(false); });
+$("vidX").onclick = cerrarVideo;
+$("vidGuia").onclick = () => { cerrarVideo(); abrirGuiaOtros(); };
+(() => { const m = $("vidModal"); let abajo = false;
+  m.addEventListener("pointerdown", (e) => { abajo = e.target === m; });
+  m.addEventListener("click", (e) => { if (abajo && e.target === m) cerrarVideo(); abajo = false; });
+})();
+
 function cerrarTodo() { ["sheetInfo", "sheetMov", "sheetAdd", "sheetForm"].forEach((id) => { $(id).hidden = true; }); formCierre = null; tipHide(); }
-function hayHoja() { return ["sheetInfo", "sheetMov", "sheetAdd", "sheetForm"].some((id) => !$(id).hidden); }
+function hayHoja() { if (!$("vidModal").hidden) return true; return ["sheetInfo", "sheetMov", "sheetAdd", "sheetForm"].some((id) => !$(id).hidden); }
 
 function fondo(id, fn) {
   const el = $(id); let abajo = false;
@@ -1434,6 +1484,7 @@ fondo("sheetForm", () => { (formCierre || cerrarForm)(); });
 
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
+    if (cerrarVideo()) return;
     if (!$("sheetInfo").hidden) $("sheetInfo").hidden = true;
     else if (!$("sheetMov").hidden) $("sheetMov").hidden = true;
     else if (!$("sheetAdd").hidden) $("sheetAdd").hidden = true;
