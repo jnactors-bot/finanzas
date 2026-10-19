@@ -1,7 +1,7 @@
 const $ = (id) => document.getElementById(id);
 const K_TOK = "finanzas_idtoken";
-const ssGet = (k) => { try { return sessionStorage.getItem(k) || ""; } catch { return ""; } };
-const ssSet = (k, v) => { try { v ? sessionStorage.setItem(k, v) : sessionStorage.removeItem(k); } catch {} };
+const ssGet = (k) => { try { return localStorage.getItem(k) || ""; } catch { return ""; } };
+const ssSet = (k, v) => { try { v ? localStorage.setItem(k, v) : localStorage.removeItem(k); } catch {} };
 const RE_URL = /^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/;
 const getUrl = () => (window.SCRIPT_URL && RE_URL.test(window.SCRIPT_URL) ? window.SCRIPT_URL : "");
 const CLIENT_ID = () => (window.GOOGLE_CLIENT_ID && window.GOOGLE_CLIENT_ID !== "PENDIENTE" ? window.GOOGLE_CLIENT_ID : "");
@@ -90,7 +90,7 @@ function renovarToken() {
 }
 
 function pantalla(n) {
-  ["login", "registro", "espera", "app"].forEach((k) => { $(k).hidden = k !== n; });
+  ["splash", "login", "registro", "espera", "app"].forEach((k) => { const e = $(k); if (e) e.hidden = k !== n; });
   $("auth").hidden = n === "app"; document.body.classList.toggle("in-app", n === "app");
   if (n !== "app") { cerrarTodo(); $("app").classList.remove("ready"); }
 }
@@ -136,12 +136,12 @@ async function api(action, extra = {}, reintento = false) {
 async function iniciar() {
   if (!getUrl()) return mostrarLogin("Falta la dirección del servidor en config.js (SCRIPT_URL).");
   if (!CLIENT_ID()) return mostrarLogin("Falta configurar el acceso con Google (GOOGLE_CLIENT_ID en config.js).");
-  mostrarLogin("");
-  try { await cargarGis(); iniciarGis(); } catch (e) { return mostrarLogin(e.message, true); }
+  pantalla("splash"); // no mostramos el cuadro de Google hasta saber que de verdad hace falta
   const t = ssGet(K_TOK);
-  if (t) { guardarToken(t); if (tokenValido()) return entrar(); }
+  if (t) { guardarToken(t); if (tokenValido()) { entrar(); cargarGis().then(iniciarGis).catch(() => {}); return; } }
+  try { await cargarGis(); iniciarGis(); } catch (e) { return mostrarLogin(e.message, true); }
+  if (await renovarToken()) return entrar();
   mostrarLogin("");
-  if (await renovarToken()) entrar();
 }
 
 async function entrar() {
