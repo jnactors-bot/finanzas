@@ -235,7 +235,9 @@ $("regSalir").onclick = $("esperaSalir").onclick = () => cerrarSesion("");
 $("salir").onclick = (ev) => { ev.preventDefault(); cerrarSesion(""); };
 $("loginReintentar").onclick = () => iniciar();
 
+const ACC_RAPIDAS = ["delete", "setcat", "mov_editar"];
 async function cargar(accion = "dashboard", extra = {}) {
+  if (ACC_RAPIDAS.includes(accion)) { rapido(accion, extra); return D; }
   try {
     D = await api(accion, extra);
     pintar();
@@ -307,9 +309,122 @@ function formModal(o) {
   return box;
 }
 
-async function guardarYCerrar(accion, datos, mensaje) {
-  D = await api(accion, datos); pintar(); cerrarForm(); if (mensaje) say(mensaje, "ok");
+// Todo se guarda al instante: se cambia la pantalla, se cierra la ventana y el servidor se actualiza por detrás.
+let pendientes = 0, colaApi = Promise.resolve();
+const sumaM = (a, f) => a.reduce((t, m) => t + (f(m) ? m.monto : 0), 0);
+// Solo hay los últimos movimientos en pantalla: por eso se ajusta por diferencias, no desde cero.
+let __A = null;
+function medidas() {
+  const c = D && D.ciclo; if (!c) return { g: 0, p: 0, i: 0, pc: {} };
+  const ini = c.inicio, hoy = D.hoy || new Date().toISOString().slice(0, 10), mv = D.movimientos || [];
+  const pc = {}; mv.filter((m) => m.tipo === "gasto" && m.fecha >= ini && m.fecha <= hoy).forEach((m) => { pc[m.categoria] = (pc[m.categoria] || 0) + m.monto; });
+  return {
+    g: sumaM(mv, (m) => m.tipo === "gasto" && m.fecha >= ini && m.fecha <= hoy),
+    p: sumaM(mv, (m) => m.tipo === "gasto" && m.fecha > hoy && m.fecha <= c.fin),
+    i: sumaM(mv, (m) => m.tipo === "ingreso" && m.fuente === "app-ingreso" && m.fecha >= ini && m.fecha <= hoy),
+    pc,
+  };
 }
+function recalcLocal() {
+  const c = D && D.ciclo, cfg = D && D.config; if (!c || !cfg) return;
+  const B = medidas(), A = __A || B;
+  c.gastado = (c.gastado || 0) + B.g - A.g;
+  c.programado = c.estado === "esperando" ? 0 : (c.programado || 0) + B.p - A.p;
+  c.ingresosApp = (c.ingresosApp || 0) + B.i - A.i;
+  const pc = { ...(c.porCategoria || {}) };
+  new Set([...Object.keys(A.pc), ...Object.keys(B.pc)]).forEach((k) => { pc[k] = Math.max(0, (pc[k] || 0) + (B.pc[k] || 0) - (A.pc[k] || 0)); }); c.porCategoria = pc;
+  __A = B;
+  if (c.estado === "esperando") return;
+  c.presupuesto = (cfg.dinero_ciclo || 0) + c.ingresosApp - (cfg.ahorro || 0) - (cfg.fijos_total || 0);
+  c.disponible = c.presupuesto - c.gastado - c.programado;
+  c.porDia = Math.max(0, c.disponible) / Math.max(1, c.restan);
+  c.proyeccion = c.gastado / Math.max(1, c.pasados) * c.total;
+  c.ratio = c.presupuesto > 0 ? c.proyeccion / c.presupuesto : 0;
+  c.estado = c.presupuesto > 0 ? ((c.disponible < 0 || c.ratio > 1.05) ? "rojo" : c.ratio > 0.9 ? "amarillo" : "verde") : "sin_config";
+}
+function upsert(arr, orig, obj, key) { const i = arr.findIndex((x) => x[key || "nombre"] === orig); if (i >= 0) arr[i] = { ...arr[i], ...obj }; else arr.push(obj); }
+function aplicarLocal(a, d) {
+  if (!D) return false;
+  __A = medidas();
+  D.config = D.config || {}; D.movimientos = D.movimientos || []; D.finanzas = D.finanzas || {}; D.presupuesto = D.presupuesto || {};
+  const hoy = D.hoy || new Date().toISOString().slice(0, 10);
+  switch (a) {
+    case "add": {
+      let monto = Number(d.monto), nom = d.comercio || "", fe = /^\d{4}-\d{2}-\d{2}$/.test(d.fecha || "") ? d.fecha : hoy;
+      if (d.texto) {
+        let t = String(d.texto);
+        if (/\bayer\b/i.test(t)) { const x = new Date(hoy + "T12:00:00"); x.setDate(x.getDate() - 1); fe = x.toISOString().slice(0, 10); t = t.replace(/\bayer\b/i, " "); }
+        else if (/\bpasado ma(?:ñ|n)ana\b/i.test(t)) { const x = new Date(hoy + "T12:00:00"); x.setDate(x.getDate() + 2); fe = x.toISOString().slice(0, 10); t = t.replace(/\bpasado ma(?:ñ|n)ana\b/i, " "); }
+        else if (/\bma(?:ñ|n)ana\b/i.test(t)) { const x = new Date(hoy + "T12:00:00"); x.setDate(x.getDate() + 1); fe = x.toISOString().slice(0, 10); t = t.replace(/\bma(?:ñ|n)ana\b/i, " "); }
+        const m = t.match(/(\d+(?:[.,]\d{1,2})?)/); if (!m) return false;
+        monto = parseFloat(m[1].replace(",", ".")); nom = t.replace(m[0], " ").replace(/\bs\/\.?/i, " ").replace(/\s+/g, " ").trim() || "Gasto";
+      }
+      if (!(monto > 0)) return false;
+      const ing = d.tipo === "ingreso";
+      D.movimientos.unshift({ id: "tmp" + Date.now(), fecha: fe, hora: new Date().toTimeString().slice(0, 5), monto, comercio: nom || (ing ? "Ingreso" : "Gasto"), banco: "manual", medio: "efectivo/otro", categoria: d.categoria || "otros", fuente: ing ? "app-ingreso" : "app", tipo: ing ? "ingreso" : "gasto", notas: "" });
+      recalcLocal(); return true;
+    }
+    case "delete": D.movimientos = D.movimientos.filter((m) => m.id !== d.id); recalcLocal(); return true;
+    case "setcat": { const m = D.movimientos.find((x) => x.id === d.id); if (m) m.categoria = d.categoria; recalcLocal(); return true; }
+    case "mov_editar": {
+      const m = D.movimientos.find((x) => x.id === d.id); if (!m) return false;
+      if (d.monto !== undefined && d.monto !== "" && Number(d.monto) > 0) m.monto = Number(d.monto);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(d.fecha || "")) m.fecha = d.fecha;
+      if (d.comercio) m.comercio = d.comercio; if (d.categoria) m.categoria = d.categoria;
+      recalcLocal(); return true;
+    }
+    case "config_set": Object.assign(D.config, d.valores || {}); recalcLocal(); return true;
+    case "nuevo_ciclo": D.config.dinero_ciclo = Number(d.dinero); if (d.fecha) D.config.ultimo_pago = d.fecha; return false;
+    case "perfil_guardar": D.config.moneda = d.moneda; D.config.categorias = Array.isArray(d.categorias) ? d.categorias.join(",") : d.categorias; return true;
+    case "boleta_guardar": D.config.sueldo_neto = Number(d.neto); return true;
+    case "deuda_guardar": {
+      const o = { nombre: d.nombre, saldo: Number(d.saldo), cuota: Number(d.cuota || 0), tea: d.tea || "", fin: d.fin || "", nota: d.nota || "", pago: d.pago || "cuota", auto: d.auto === "si" || d.auto === "planilla", planilla: d.auto === "planilla", autoTxt: d.auto || "no", prioridad: Number(d.prioridad) || 99 };
+      D.deudasTodas = D.deudasTodas || []; upsert(D.deudasTodas, d.original || d.nombre, o);
+      D.finanzas.deudas = D.finanzas.deudas || []; if (o.saldo > 0) upsert(D.finanzas.deudas, d.original || d.nombre, o); else D.finanzas.deudas = D.finanzas.deudas.filter((x) => x.nombre !== (d.original || d.nombre));
+      D.finanzas.total = (D.finanzas.deudas || []).reduce((t, x) => t + x.saldo, 0); return true;
+    }
+    case "deuda_borrar": D.deudasTodas = (D.deudasTodas || []).filter((x) => x.nombre !== d.nombre); D.finanzas.deudas = (D.finanzas.deudas || []).filter((x) => x.nombre !== d.nombre); D.finanzas.total = (D.finanzas.deudas || []).reduce((t, x) => t + x.saldo, 0); return true;
+    case "pagar_deuda": { const x = (D.deudasTodas || []).find((y) => y.nombre === d.nombre); if (x) x.saldo = Math.max(0, x.saldo - Number(d.monto)); const f = (D.finanzas.deudas || []).find((y) => y.nombre === d.nombre); if (f) f.saldo = Math.max(0, f.saldo - Number(d.monto)); D.finanzas.total = (D.finanzas.deudas || []).reduce((t, y) => t + y.saldo, 0); return true; }
+    case "ingreso_guardar": { D.finanzas.ingresos = D.finanzas.ingresos || []; upsert(D.finanzas.ingresos, d.original || d.nombre, { nombre: d.nombre, min: Number(d.min), max: d.max === "" || d.max === undefined ? Number(d.min) : Number(d.max), fecha: d.fecha || "", nota: d.nota || "" }); return true; }
+    case "ingreso_borrar": D.finanzas.ingresos = (D.finanzas.ingresos || []).filter((x) => x.nombre !== d.nombre); return true;
+    case "meta_guardar": { D.metas = D.metas || []; const ob = Number(d.objetivo), ah = Number(d.ahorrado || 0); upsert(D.metas, d.original || d.nombre, { nombre: d.nombre, objetivo: ob, ahorrado: ah, fecha: d.fecha || "", pct: ob > 0 ? Math.min(100, Math.round(ah / ob * 100)) : 0 }); return true; }
+    case "meta_borrar": D.metas = (D.metas || []).filter((x) => x.nombre !== d.nombre); return true;
+    case "bolsa_borrar": { const P2 = D.presupuesto; ["bolsas", "hoy", "sueldo"].forEach((k) => { if (P2[k]) P2[k] = P2[k].filter((x) => x.nombre !== d.nombre); }); return true; }
+    case "bolsas_lote": {
+      const P2 = D.presupuesto; P2.bolsas = P2.bolsas || []; P2.sueldo = P2.sueldo || [];
+      (d.lista || []).forEach((x) => {
+        upsert(P2.bolsas, x.original || x.nombre, { nombre: x.nombre, emoji: x.emoji || "💠", cats: String(x.cats || "").split(",").map((t) => t.trim()).filter(Boolean), modo: "monto", montoSueldo: Number(x.montoSueldo || 0), montoHoy: 0, pctHoy: 0, pctSueldo: 0 });
+        const i = P2.sueldo.findIndex((y) => y.nombre === (x.original || x.nombre));
+        if (Number(x.montoSueldo) > 0) { const o = { nombre: x.nombre, emoji: x.emoji || "💠", modo: "monto", pct: 0, monto: Number(x.montoSueldo) }; if (i >= 0) P2.sueldo[i] = o; else P2.sueldo.push(o); } else if (i >= 0) P2.sueldo.splice(i, 1);
+      });
+      return true;
+    }
+    case "bolsa_guardar": {
+      const P2 = D.presupuesto; P2.bolsas = P2.bolsas || []; P2.sueldo = P2.sueldo || [];
+      const mo = d.modo === "monto" ? "monto" : "pct", monto = mo === "monto" ? Number(d.montoSueldo || 0) : Math.round((D.finanzas.libreMensual || 0) * Number(d.pctSueldo || 0) / 100);
+      upsert(P2.bolsas, d.original || d.nombre, { nombre: d.nombre, emoji: d.emoji || "💠", cats: String(d.cats || "").split(",").map((t) => t.trim()).filter(Boolean), modo: mo, pctHoy: Number(d.pctHoy || 0), pctSueldo: Number(d.pctSueldo || 0), montoHoy: Number(d.montoHoy || 0), montoSueldo: Number(d.montoSueldo || 0) });
+      const i = P2.sueldo.findIndex((y) => y.nombre === (d.original || d.nombre));
+      if (monto > 0) { const o = { nombre: d.nombre, emoji: d.emoji || "💠", modo: mo, pct: Number(d.pctSueldo || 0), monto }; if (i >= 0) P2.sueldo[i] = o; else P2.sueldo.push(o); } else if (i >= 0) P2.sueldo.splice(i, 1);
+      return true;
+    }
+    default: return false;
+  }
+}
+function rapido(accion, datos, mensaje) {
+  const snap = JSON.stringify(D);
+  let local = false;
+  try { local = aplicarLocal(accion, datos || {}); } catch { local = false; }
+  if (local) pintar();
+  cerrarForm(); if (mensaje) say(mensaje, "ok");
+  pendientes++;
+  colaApi = colaApi.then(() => api(accion, datos)).then((r) => {
+    pendientes--; if (pendientes === 0) { D = r; pintar(); }
+  }).catch((e) => {
+    pendientes--; D = JSON.parse(snap); pintar(); say("No se pudo guardar: " + e.message, "bad");
+  });
+  return colaApi.catch(() => {}).then(() => D);
+}
+async function guardarYCerrar(accion, datos, mensaje) { rapido(accion, datos, mensaje); }
 
 function listaModal(titulo, nota, filas, textoNuevo, onNuevo, onVolver) {
   const box = $("formBox"); box.replaceChildren();
@@ -649,32 +764,60 @@ function mostrarVistaBoleta(zona, r, err) {
 
 // ---------- ajustes, guía y asistente de inicio ----------
 
+function abrirSueldo() {
+  const c = D.config;
+  formModal({
+    titulo: "Tu sueldo",
+    nota: "Dinos cuánto te cae y cuándo te pagan este mes. Si cambia de día, vuelve aquí y lo cambias.",
+    campos: [
+      { k: "proximo_pago", label: "¿Qué día te pagan este mes? (AAAA-MM-DD)", valor: c.proximo_pago && c.proximo_pago >= (D.hoy || "") ? c.proximo_pago : "", ph: "Ej.: " + ((D.hoy || "2026-10-20")) },
+      { k: "sueldo_neto", label: "Cuánto te cae (" + mon() + ")", tipo: "number", valor: c.sueldo_neto || "" },
+    ],
+    extra: (box) => { const bb = btnIco("s full", "file-text", "Subir mi boleta y que se llene sola"); bb.style.marginTop = "10px"; bb.onclick = () => { cerrarForm(); abrirBoleta(); }; box.append(bb); },
+    onGuardar: async (v) => {
+      if (v.proximo_pago && !/^\d{4}-\d{2}-\d{2}$/.test(v.proximo_pago.trim())) throw new Error("Escribe la fecha así: AAAA-MM-DD (ej. 2026-10-20).");
+      rapido("config_set", { valores: { proximo_pago: (v.proximo_pago || "").trim(), sueldo_neto: Number(v.sueldo_neto || 0) } }, "Sueldo guardado");
+    },
+  });
+}
+
+function abrirCfgMas() {
+  const c = D.config; const admin = !!(ME && ME.admin);
+  formModal({
+    titulo: "Más ajustes",
+    campos: [
+      { k: "ultimo_pago", label: "Fecha en que empezó este ciclo, cuando te pagaron (AAAA-MM-DD)", valor: c.ultimo_pago || "" },
+      { k: "ahorro", label: "Ahorro que quieres apartar (" + mon() + ")", tipo: "number", valor: c.ahorro || "" },
+      { k: "fijos_total", label: "Gastos fijos que aún no pagaste este ciclo (" + mon() + ")", tipo: "number", valor: c.fijos_total || "" },
+      { k: "aporte_comida", label: "Aporte de comida en casa al mes (" + mon() + ")", tipo: "number", valor: c.aporte_comida || 0 },
+      { k: "meta_fondo", label: "Meta de fondo de emergencia (" + mon() + ")", tipo: "number", valor: c.meta_fondo || "" },
+      { k: "umbral_grande", label: "Avisarme si un gasto supera (" + mon() + ")", tipo: "number", valor: c.umbral_grande || "" },
+      { k: "alertas", label: "Avisos por correo y Calendar", tipo: "select", opciones: [["1", "Activados"], ["0", "Apagados"]], valor: String(c.alertas), solo: "admin" },
+    ].filter((x) => !x.solo || admin),
+    onGuardar: async (v) => {
+      const n = (k) => Number(v[k] || 0);
+      rapido("config_set", { valores: { ...(/^\d{4}-\d{2}-\d{2}$/.test(String(v.ultimo_pago || "")) ? { ultimo_pago: v.ultimo_pago } : {}), ahorro: n("ahorro"), fijos_total: n("fijos_total"), aporte_comida: n("aporte_comida"), meta_fondo: n("meta_fondo"), umbral_grande: n("umbral_grande"), ...(admin ? { alertas: n("alertas") } : {}) } }, "Ajustes guardados");
+    },
+    onCerrar: abrirCfg,
+  });
+}
+
 function abrirCfg() {
   const c = D.config; const admin = !!(ME && ME.admin);
   formModal({
     titulo: "Ajustes",
+    nota: "Lo esencial. Lo demás está en el menú de abajo.",
     campos: [
-      { k: "dinero_ciclo", label: "Plata que tienes para este ciclo (" + mon() + ")", tipo: "number", valor: c.dinero_ciclo || "", ayuda: "Si te equivocaste, corrígela aquí." },
-      { k: "ultimo_pago", label: "Fecha en que empezó este ciclo, cuando te pagaron (AAAA-MM-DD)", valor: c.ultimo_pago || "" },
-      { k: "ahorro", label: "Ahorro que quieres apartar (S/)", tipo: "number", valor: c.ahorro || "" },
-      { k: "fijos_total", label: "Gastos fijos que aún no pagaste este ciclo (S/)", tipo: "number", valor: c.fijos_total || "" },
-      { k: "sueldo_neto", label: "Tu sueldo neto (lo que te cae) (S/)", tipo: "number", valor: c.sueldo_neto || "", ayuda: "Lo más fácil es subir tu boleta con «Subir boleta»." },
-      { k: "aporte_comida", label: "Aporte de comida en casa al mes (S/)", tipo: "number", valor: c.aporte_comida || 0 },
-      { k: "meta_fondo", label: "Meta de fondo de emergencia (S/)", tipo: "number", valor: c.meta_fondo || "" },
-      { k: "umbral_grande", label: "Avisarme si un gasto supera (S/)", tipo: "number", valor: c.umbral_grande || "" },
-      { k: "alertas", label: "Avisos por correo y Calendar", tipo: "select", opciones: [["1", "Activados"], ["0", "Apagados"]], valor: String(c.alertas), solo: "admin" },
-    ].filter((x) => !x.solo || admin),
+      { k: "dinero_ciclo", label: "Plata que tengo para este ciclo (" + mon() + ")", tipo: "number", valor: c.dinero_ciclo || "", ayuda: "Si te equivocaste, corrígela aquí." },
+    ],
     extra: (box) => {
       const menu = h("div", "menu");
-      [["user", "Mi perfil", abrirPerfil], ["target", "Mis metas", abrirMetas], ["file-text", "Subir boleta", abrirBoleta], ["wallet", "Deudas", abrirDeudas], ["banknote", "Ingresos extra", abrirIngresos], ["wallet", "Mis gastos del mes", () => abrirMisGastos(abrirCfg)], ["coins", "Bolsas", abrirBolsas], admin && ["building", "Bancos", () => abrirBancos(abrirCfg)], admin && ["users", "Usuarios", abrirUsuarios], ["compass", "Guía de inicio", abrirWizard], ["play", "Cómo funciona", () => abrirVideo(true)], ["check-circle", "Ya me pagaron", abrirNuevoCiclo], ["log-out", "Cerrar sesión", () => { cerrarForm(); cerrarSesion(""); }]].filter(Boolean).forEach(([i, t, f]) => {
+      [["building", "Sueldo y fecha de pago", abrirSueldo], ["wallet", "Mis gastos del mes", () => abrirMisGastos(abrirCfg)], ["wallet", "Deudas", abrirDeudas], ["banknote", "Ingresos extra", abrirIngresos], ["target", "Mis metas", abrirMetas], ["file-text", "Subir boleta", abrirBoleta], ["user", "Mi perfil", abrirPerfil], ["settings", "Más ajustes", abrirCfgMas], ["coins", "Bolsas una por una", abrirBolsas], admin && ["building", "Bancos", () => abrirBancos(abrirCfg)], admin && ["users", "Usuarios", abrirUsuarios], ["compass", "Guía de inicio", abrirWizard], ["play", "Cómo funciona", () => abrirVideo(true)], ["check-circle", "Ya me pagaron", abrirNuevoCiclo], ["log-out", "Cerrar sesión", () => { cerrarForm(); cerrarSesion(""); }]].filter(Boolean).forEach(([i, t, f]) => {
         const b = h("button", ""); b.type = "button"; b.append(ic(i), h("span", "", t), ic("chevron-right", "chv")); b.onclick = f; menu.append(b);
       });
       box.append(menu);
     },
-    onGuardar: async (v) => {
-      const n = (k) => Number(v[k] || 0);
-      await guardarYCerrar("config_set", { valores: { dinero_ciclo: n("dinero_ciclo"), ...(/^\d{4}-\d{2}-\d{2}$/.test(String(v.ultimo_pago || "")) ? { ultimo_pago: v.ultimo_pago } : {}), ahorro: n("ahorro"), fijos_total: n("fijos_total"), sueldo_neto: n("sueldo_neto"), aporte_comida: n("aporte_comida"), meta_fondo: n("meta_fondo"), umbral_grande: n("umbral_grande"), ...(admin ? { alertas: n("alertas") } : {}) } }, "Ajustes guardados");
-    },
+    onGuardar: async (v) => { rapido("config_set", { valores: { dinero_ciclo: Number(v.dinero_ciclo || 0) } }, "Ajustes guardados"); },
   });
 }
 
@@ -800,8 +943,7 @@ function abrirPerfil() {
       const cats = v.categorias.split(",").map((x) => x.trim().toLowerCase()).filter(Boolean);
       if (cats.length > 10) throw new Error("Máximo 10 categorías.");
       if (cats.some((x) => !/^[a-z0-9áéíóúñü ]+$/i.test(x))) throw new Error("Las categorías solo pueden tener letras, números y espacios.");
-      await api("perfil_guardar", { moneda, categorias: cats.join(",") });
-      await cargar("dashboard"); cerrarForm(); say("Perfil guardado.", "ok");
+      rapido("perfil_guardar", { moneda, categorias: cats.join(",") }, "Perfil guardado");
     },
     onCerrar: abrirCfg,
   });
@@ -820,10 +962,9 @@ function abrirMeta(m, volver) {
     onGuardar: async (v) => {
       if (v.nombre.trim().length < 2) throw new Error("Escribe un nombre para la meta.");
       if (!(Number(v.objetivo) > 0)) throw new Error("El objetivo debe ser mayor a 0.");
-      await api("meta_guardar", { original: m ? m.nombre : undefined, nombre: v.nombre.trim(), objetivo: Number(v.objetivo), ahorrado: Number(v.ahorrado || 0), fecha: v.fecha.trim() });
-      await cargar("dashboard"); cerrarForm(); say("Meta guardada.", "ok"); if (volver) volver();
+      rapido("meta_guardar", { original: m ? m.nombre : undefined, nombre: v.nombre.trim(), objetivo: Number(v.objetivo), ahorrado: Number(v.ahorrado || 0), fecha: v.fecha.trim() }, "Meta guardada"); if (volver) volver();
     },
-    onBorrar: m ? async () => { await api("meta_borrar", { nombre: m.nombre }); await cargar("dashboard"); cerrarForm(); say("Meta borrada.", "ok"); if (volver) volver(); } : null,
+    onBorrar: m ? async () => { rapido("meta_borrar", { nombre: m.nombre }, "Meta borrada"); if (volver) volver(); } : null,
     nombreBorrar: m ? m.nombre : "",
     onCerrar: volver,
   });
@@ -1079,7 +1220,7 @@ function pintarIngresos(c) {
     tt.append(top, h("span", "s", s), bar(pct, col, 4)); r.append(iconBox(icono, col), tt); if (fn) { r.onclick = fn; r.onkeydown = (e) => { if (e.key === "Enter") fn(); }; } return r;
   };
   const tt = h("div", "total"); tt.append(h("span", "", "Esperas este ciclo")); const tb = h("b"); cnt(tb, "ing_tot", tot); tt.append(tb); card.append(tt);
-  if (cfg.sueldo_neto > 0) card.append(fila("building", C_AC, "Sueldo", "Fijo · días " + parseInt(c.ventana.desde.slice(8), 10) + " a " + parseInt(c.ventana.hasta.slice(8), 10), S(cfg.sueldo_neto), cfg.sueldo_neto / tot * 100, abrirBoleta));
+  if (cfg.sueldo_neto > 0) card.append(fila("building", C_AC, "Sueldo", (cfg.proximo_pago && cfg.proximo_pago >= (D.hoy || "") ? "Te pagan el " + fecha(cfg.proximo_pago) : "Normalmente días " + parseInt(c.ventana.desde.slice(8), 10) + " a " + parseInt(c.ventana.hasta.slice(8), 10)) + " · toca para cambiar", S(cfg.sueldo_neto), cfg.sueldo_neto / tot * 100, abrirSueldo));
   if (cfg.dinero_ciclo > 0) card.append(fila("check-circle", C_AC, "Pago de este ciclo", "Recibido el " + (cfg.ultimo_pago ? fecha(cfg.ultimo_pago) : "—") + " · toca para corregir", S(cfg.dinero_ciclo), Math.min(100, cfg.dinero_ciclo / tot * 100), abrirEditarPago));
   (D.movimientos || []).filter((m) => m.tipo === "ingreso" && m.fuente === "app-ingreso").forEach((m) => card.append(fila("arrow-down-left", C_AC, m.comercio, "Anotado el " + fecha(m.fecha) + " · toca para corregir", S(m.monto), Math.min(100, m.monto / tot * 100), () => abrirMov(m))));
   ext.forEach((i) => card.append(fila("banknote", C_AM, i.nombre, "Variable · " + (i.fecha ? fecha(i.fecha) : "sin fecha") + (i.max > i.min ? " · hasta " + S(i.max) : ""), S(i.min), i.min / tot * 100, () => abrirIngreso((D.finanzas.ingresos || []).find((x) => x.nombre === i.nombre) || i, null))));
@@ -1239,6 +1380,13 @@ function pintarLinea(c) {
   const el = $("linea"); el.replaceChildren();
   if (c.estado === "sin_config") return;
   const card = h("div", "card");
+  if (c.estado === "esperando") {
+    card.append(cardHead("Tu pago", "Mientras llega, la app no cuenta con esa plata. Si la fecha cambia, corrígela en «Sueldo»."));
+    const t0 = h("div", "blk-t"); t0.append(h("span", "", "Llega"), h("b", "", c.diasParaPago === 1 ? "mañana" : "en " + c.diasParaPago + " días"));
+    const l0 = h("div", "leyenda"); l0.append(h("span", "", "Hoy"), h("span", "", fecha(c.pagoEn)));
+    const b0 = btnIco("s full", "calendar", "Cambiar la fecha"); b0.onclick = abrirSueldo; b0.style.marginTop = "12px";
+    card.append(t0, l0, b0); el.append(card); return;
+  }
   card.append(cardHead("Ciclo", "Hoy es el día " + c.pasados + " de " + c.total + ". La franja rayada es tu ventana de pago."));
   const total = c.total;
   const t1 = h("div", "blk-t"); t1.append(h("span", "", "Tiempo"), h("b", "", "Día " + c.pasados + " de " + total));
@@ -1553,9 +1701,9 @@ $("smBorrar").onclick = async () => { if (!movActual || !confirm("¿Borrar este 
 
 async function enviarGasto(t, btn, err, ok) {
   t = (t || "").trim(); if (!t) return;
-  btn.disabled = true; if (err) err.textContent = ""; say("Guardando…", "mut");
-  try { D = await api("add", { texto: t }); pintar(); say("Gasto agregado", "ok"); if (ok) ok(); } catch (e) { if (err) err.textContent = e.message; say(e.message, "bad"); }
-  btn.disabled = false;
+  if (err) err.textContent = "";
+  if (!/\d/.test(t)) { const msg = "Escribe el monto. Ejemplo: almuerzo 18"; if (err) err.textContent = msg; say(msg, "bad"); return; }
+  rapido("add", { texto: t }, "Gasto agregado"); if (ok) ok();
 }
 
 function abrirAdd() {
