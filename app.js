@@ -1,5 +1,21 @@
 const $ = (id) => document.getElementById(id);
-const K_TOK = "finanzas_idtoken";
+const K_TOK = "finanzas_idtoken", K_TEMA = "qullqi_tema";
+const TEMAS = [
+  { id: "esmeralda", nombre: "Esmeralda", bg: "#0B0D12", ac: "#2DD4A0", am: "#F5B544" },
+  { id: "oceano", nombre: "Océano", bg: "#08111C", ac: "#38BDF8", am: "#F5B544" },
+  { id: "violeta", nombre: "Violeta", bg: "#0E0B16", ac: "#A78BFA", am: "#F5B544" },
+  { id: "atardecer", nombre: "Atardecer", bg: "#130C0B", ac: "#FB923C", am: "#FDE68A" },
+  { id: "rosa", nombre: "Rosa", bg: "#140A10", ac: "#F472B6", am: "#FDE68A" },
+  { id: "oro", nombre: "Oro", bg: "#0D0C09", ac: "#E5B84B", am: "#7DD3FC" },
+];
+function aplicarTema(id, repintar) {
+  const t = TEMAS.find((x) => x.id === id) || TEMAS[0];
+  if (t.id === "esmeralda") delete document.documentElement.dataset.tema; else document.documentElement.dataset.tema = t.id;
+  C_AC = t.ac; C_AM = t.am;
+  const mt = document.querySelector('meta[name="theme-color"]'); if (mt) mt.setAttribute("content", t.bg);
+  try { localStorage.setItem(K_TEMA, t.id); } catch {}
+  if (repintar && typeof D !== "undefined" && D && D.ciclo) pintar();
+}
 const ssGet = (k) => { try { return localStorage.getItem(k) || ""; } catch { return ""; } };
 const ssSet = (k, v) => { try { v ? localStorage.setItem(k, v) : localStorage.removeItem(k); } catch {} };
 const RE_URL = /^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/;
@@ -764,6 +780,28 @@ function mostrarVistaBoleta(zona, r, err) {
 
 // ---------- ajustes, guía y asistente de inicio ----------
 
+function abrirColores() {
+  const actual = (() => { try { return localStorage.getItem(K_TEMA) || "esmeralda"; } catch { return "esmeralda"; } })();
+  formModal({
+    titulo: "Colores",
+    nota: "Elige la combinación que más te guste. Se guarda en este aparato.",
+    extra: (box) => {
+      const g = h("div", "temas"); g.style.cssText = "display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:12px";
+      TEMAS.forEach((t) => {
+        const b = h("button", "s"); b.type = "button";
+        b.style.cssText = "display:flex;align-items:center;gap:10px;padding:12px;text-align:left;border-radius:14px;background:" + t.bg + ";border:2px solid " + (t.id === actual ? t.ac : "rgba(255,255,255,.12)");
+        const sw = h("span"); sw.style.cssText = "width:30px;height:30px;border-radius:50%;flex:none;background:linear-gradient(135deg," + t.ac + " 55%," + t.am + " 55%)";
+        const tx = h("span", "", t.nombre); tx.style.cssText = "font-weight:600;color:#F2F4F8";
+        b.append(sw, tx);
+        b.onclick = () => { aplicarTema(t.id, true); say("Color: " + t.nombre, "ok"); cerrarForm(); abrirColores(); };
+        g.append(b);
+      });
+      box.append(g);
+    },
+    textoCerrar: "Listo", onCerrar: abrirCfg,
+  });
+}
+
 function abrirSueldo() {
   const c = D.config;
   formModal({
@@ -812,7 +850,7 @@ function abrirCfg() {
     ],
     extra: (box) => {
       const menu = h("div", "menu");
-      [["building", "Sueldo y fecha de pago", abrirSueldo], ["wallet", "Mis gastos del mes", () => abrirMisGastos(abrirCfg)], ["wallet", "Deudas", abrirDeudas], ["banknote", "Ingresos extra", abrirIngresos], ["target", "Mis metas", abrirMetas], ["file-text", "Subir boleta", abrirBoleta], ["user", "Mi perfil", abrirPerfil], ["settings", "Más ajustes", abrirCfgMas], ["coins", "Bolsas una por una", abrirBolsas], admin && ["building", "Bancos", () => abrirBancos(abrirCfg)], admin && ["users", "Usuarios", abrirUsuarios], ["compass", "Guía de inicio", abrirWizard], ["play", "Cómo funciona", () => abrirVideo(true)], ["check-circle", "Ya me pagaron", abrirNuevoCiclo], ["log-out", "Cerrar sesión", () => { cerrarForm(); cerrarSesion(""); }]].filter(Boolean).forEach(([i, t, f]) => {
+      [["building", "Sueldo y fecha de pago", abrirSueldo], ["wallet", "Mis gastos del mes", () => abrirMisGastos(abrirCfg)], ["wallet", "Deudas", abrirDeudas], ["banknote", "Ingresos extra", abrirIngresos], ["target", "Mis metas", abrirMetas], ["file-text", "Subir boleta", abrirBoleta], ["user", "Mi perfil", abrirPerfil], ["settings", "Más ajustes", abrirCfgMas], ["sparkles", "Colores", abrirColores], ["coins", "Bolsas una por una", abrirBolsas], admin && ["building", "Bancos", () => abrirBancos(abrirCfg)], admin && ["users", "Usuarios", abrirUsuarios], ["compass", "Guía de inicio", abrirWizard], ["play", "Cómo funciona", () => abrirVideo(true)], ["check-circle", "Ya me pagaron", abrirNuevoCiclo], ["log-out", "Cerrar sesión", () => { cerrarForm(); cerrarSesion(""); }]].filter(Boolean).forEach(([i, t, f]) => {
         const b = h("button", ""); b.type = "button"; b.append(ic(i), h("span", "", t), ic("chevron-right", "chv")); b.onclick = f; menu.append(b);
       });
       box.append(menu);
@@ -1022,11 +1060,12 @@ function ic(n, cls) {
   const s = document.createElementNS(NS, "svg"); s.setAttribute("class", "ic" + (cls ? " " + cls : "")); s.setAttribute("aria-hidden", "true");
   const u = document.createElementNS(NS, "use"); u.setAttribute("href", "#i-" + n); s.append(u); return s;
 }
-const C_AC = "#2DD4A0", C_AM = "#F5B544", C_RED = "#F2685B", C_SLATE = "#7B849A";
+let C_AC = "#2DD4A0", C_AM = "#F5B544"; const C_RED = "#F2685B", C_SLATE = "#7B849A";
+try { aplicarTema(localStorage.getItem(K_TEMA) || "esmeralda"); } catch { aplicarTema("esmeralda"); }
 const PAL = ["#7C9CD6", "#C79A6B", "#A58BC9", "#6DB5A8", "#D08A8A", "#B7B36B", "#7FB0C9", "#9AA3B5"];
 const BOLSA_COL = PAL;
 const VISTAS = ["inicio", "presu", "ingdeu", "metas", "stats"];
-const TITULOS = { inicio: "Inicio", presu: "Bolsas", ingdeu: "Dinero", metas: "Metas", stats: "Estadísticas" };
+const TITULOS = { inicio: "Inicio", presu: "Presupuesto", ingdeu: "Dinero", metas: "Metas", stats: "Estadísticas" };
 let vista = "inicio";
 const vistaPorDefecto = "inicio";
 const metasFestejadas = new Set();
@@ -1357,7 +1396,7 @@ function pintarPresu() {
   const el = $("presu"); el.replaceChildren();
   const P = D.presupuesto; if (!P) return;
   const card = h("div", "card");
-  card.append(cardHead("Cuánto gastas en cada cosa", ["Pon cuánto gastas al mes en cada cosa (comida, transporte, tu carro…). Aquí ves cuánto llevas gastado y cuánto te queda.", "Toca una para ver sus gastos o cambiar el monto."]));
+  card.append(cardHead("Presupuesto del mes", ["Pon cuánto gastas al mes en cada cosa (comida, transporte, tu carro…). Aquí ves cuánto llevas gastado y cuánto te queda.", "Toca una para ver sus gastos o cambiar el monto."]));
   const lista = bolsasUnificadas();
   if (!lista.length) card.append(vacio("wallet", "Aún no pones tus gastos", "Escribe cuánto gastas al mes en cada cosa.", "Mis gastos del mes", () => abrirMisGastos(null)));
   else card.append(listaBolsas(lista, "hoy", 0));
@@ -1370,7 +1409,7 @@ function pintarBolsasIni() {
   const el = $("bolsasIni"); el.replaceChildren();
   const P = D.presupuesto; const uni = bolsasUnificadas(); if (!P || !uni.length) return;
   const card = h("div", "card");
-  card.append(cardHead("Cuánto gastas en cada cosa", "Lo que llevas gastado contra lo que pusiste para cada cosa. Toca una para ver sus gastos."));
+  card.append(cardHead("Presupuesto del mes", "Lo que llevas gastado contra lo que pusiste para cada cosa. Toca una para ver sus gastos."));
   card.append(listaBolsas(uni, "hoy", 5));
   const v = h("button", "t"); v.type = "button"; v.append(document.createTextNode("Ver todas las bolsas"), ic("chevron-right", "sm")); v.onclick = () => irVista("presu"); v.style.marginTop = "auto"; v.style.paddingTop = "12px";
   card.append(v); el.append(card);

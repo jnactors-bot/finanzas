@@ -13,7 +13,7 @@
 <title>Qullqi</title>
 <style>
   :root { --bg:#0B0D12; --s1:#12151C; --s2:#171B24; --s3:#1E2330; --line:rgba(255,255,255,.06); --line2:rgba(255,255,255,.11);
-          --ink:#F2F4F8; --mut:#8B93A7; --ac:#2DD4A0; --ac-ink:#04140E; --am:#F5B544; --rojo:#F2685B;
+          --ink:#F2F4F8; --mut:#8B93A7; --ac:#2DD4A0; --ac-rgb:45,212,160; --ac-ink:#04140E; --am:#F5B544; --rojo:#F2685B;
           --font:Inter,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; --nav:232px; --btn:44px;
           --tabbar:calc(62px + env(safe-area-inset-bottom)); --ease:cubic-bezier(.2,.8,.2,1); }
   * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
@@ -31,14 +31,14 @@
   .cap { font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--mut); font-weight:500; }
   .sub { color:var(--mut); font-size:13px; line-height:1.4; }
   :focus-visible { outline:2px solid var(--ac); outline-offset:2px; }
-  ::selection { background:rgba(45,212,160,.28); }
+  ::selection { background:rgba(var(--ac-rgb),.28); }
 
   /* ---------- controles ---------- */
   input,select,button,textarea { font:inherit; color:inherit; }
   input,select { background:#0E1117; border:1px solid var(--line2); border-radius:12px; padding:0 14px; width:100%; min-width:0; height:var(--btn); font-size:16px; transition:border-color .15s,box-shadow .15s; }
   input::placeholder { color:#5F677A; }
   input:hover,select:hover { border-color:rgba(255,255,255,.2); }
-  input:focus,select:focus { outline:none; border-color:var(--ac); box-shadow:0 0 0 3px rgba(45,212,160,.16); }
+  input:focus,select:focus { outline:none; border-color:var(--ac); box-shadow:0 0 0 3px rgba(var(--ac-rgb),.16); }
   select { appearance:none; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%238B93A7' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E"); background-repeat:no-repeat; background-position:right 12px center; padding-right:36px; }
   select option { background:#171B24; color:var(--ink); }
   input[type=checkbox] { appearance:none; width:20px; min-width:20px; height:20px; padding:0; border-radius:6px; cursor:pointer; display:inline-grid; place-items:center; flex:none; }
@@ -51,7 +51,7 @@
   button:disabled { opacity:.5; cursor:default; }
   button.p, button.s { display:inline-flex; align-items:center; justify-content:center; gap:8px; height:var(--btn); padding:0 18px; border-radius:12px; font-weight:500; font-size:14px; white-space:nowrap; }
   button.p { background:var(--ac); color:var(--ac-ink); border:0; font-weight:600; }
-  button.p:hover { box-shadow:0 6px 18px -6px rgba(45,212,160,.55); transform:translateY(-1px); }
+  button.p:hover { box-shadow:0 6px 18px -6px rgba(var(--ac-rgb),.55); transform:translateY(-1px); }
   button.p:active { transform:scale(.98); }
   button.s { background:var(--s2); border:1px solid var(--line2); color:var(--ink); }
   button.s:hover { background:var(--s3); border-color:rgba(255,255,255,.18); transform:translateY(-1px); }
@@ -73,7 +73,7 @@
   #auth { position:relative; z-index:1; min-height:100vh; min-height:100dvh; display:flex; align-items:center; justify-content:center; padding:24px 20px; }
   .auth-card { width:100%; max-width:420px; margin:0 auto; background:var(--s1); border:1px solid var(--line); border-radius:16px; padding:32px 28px; animation:entra .5s var(--ease) both; box-shadow:0 30px 80px -30px rgba(0,0,0,.7); }
   .auth-logo { display:flex; align-items:center; justify-content:center; gap:10px; margin-bottom:24px; font-size:18px; font-weight:600; letter-spacing:-.01em; }
-  .mark { width:32px; height:32px; border-radius:10px; display:grid; place-items:center; background:#12151C; color:#C9D1E3; border:1px solid #2A3040; }
+  .mark { width:32px; height:32px; border-radius:10px; display:grid; place-items:center; background:var(--s1); color:#C9D1E3; border:1px solid var(--line2); }
   .auth-t { font-size:20px; font-weight:600; letter-spacing:-.015em; text-align:center; }
   .auth-s { text-align:center; margin-top:6px; }
   #gbtn { margin:28px auto 8px; display:flex; justify-content:center; align-items:center; min-height:44px; width:100%; }
@@ -130,7 +130,7 @@
   .hoy-body { display:flex; align-items:center; justify-content:space-between; gap:20px; }
   .hoy-l { min-width:0; }
   .big { font-size:48px; font-weight:600; letter-spacing:-.035em; line-height:1.05; white-space:nowrap; }
-  .est { display:inline-flex; align-items:center; gap:8px; font-size:13px; font-weight:500; margin-top:14px; padding:5px 11px 5px 9px; border-radius:999px; background:rgba(45,212,160,.09); color:var(--ac); }
+  .est { display:inline-flex; align-items:center; gap:8px; font-size:13px; font-weight:500; margin-top:14px; padding:5px 11px 5px 9px; border-radius:999px; background:rgba(var(--ac-rgb),.09); color:var(--ac); }
   .est .edot { display:block; width:6px; height:6px; border-radius:50%; background:currentColor; flex:none; }
   .hoy.amarillo .est { background:rgba(245,181,68,.1); color:var(--am); } .hoy.rojo .est { background:rgba(242,104,91,.1); color:var(--rojo); }
   .hoy-l .sub { margin-top:10px; }
@@ -245,8 +245,8 @@
   .vacio { display:flex; flex-direction:column; align-items:center; gap:6px; text-align:center; padding:28px 12px; color:var(--mut); }
   .vacio .vi { width:48px; height:48px; border-radius:14px; display:grid; place-items:center; background:var(--s2); border:1px solid var(--line); color:var(--mut); margin-bottom:6px; }
   .vacio p { font-size:14px; color:var(--ink); } .vacio .sub { max-width:280px; } .vacio button { margin-top:12px; }
-  .banner { flex-direction:row; align-items:center; gap:16px; border-color:rgba(45,212,160,.28); background:linear-gradient(0deg,rgba(45,212,160,.05),rgba(45,212,160,.05)),var(--s1); flex-wrap:wrap; }
-  .banner .bt-i { width:36px; height:36px; border-radius:10px; display:grid; place-items:center; background:rgba(45,212,160,.12); color:var(--ac); flex:none; }
+  .banner { flex-direction:row; align-items:center; gap:16px; border-color:rgba(var(--ac-rgb),.28); background:linear-gradient(0deg,rgba(var(--ac-rgb),.05),rgba(var(--ac-rgb),.05)),var(--s1); flex-wrap:wrap; }
+  .banner .bt-i { width:36px; height:36px; border-radius:10px; display:grid; place-items:center; background:rgba(var(--ac-rgb),.12); color:var(--ac); flex:none; }
   .banner .ban-t { flex:1; min-width:160px; font-size:15px; font-weight:500; } .banner .ban-t small { display:block; color:var(--mut); font-size:12px; font-weight:400; margin-top:2px; }
 
   /* mi mes */
@@ -309,7 +309,7 @@
 
   /* chips */
   .chip { display:inline-flex; align-items:center; gap:6px; padding:3px 10px; border-radius:999px; background:rgba(255,255,255,.06); font-size:12px; font-weight:500; }
-  .chip.est-Aprobado { background:rgba(45,212,160,.1); color:var(--ac); } .chip.est-Pendiente { background:rgba(245,181,68,.1); color:var(--am); } .chip.est-Bloqueado { background:rgba(242,104,91,.1); color:var(--rojo); }
+  .chip.est-Aprobado { background:rgba(var(--ac-rgb),.1); color:var(--ac); } .chip.est-Pendiente { background:rgba(245,181,68,.1); color:var(--am); } .chip.est-Bloqueado { background:rgba(242,104,91,.1); color:var(--rojo); }
 
 
   /* ---------- video "Cómo funciona" ---------- */
@@ -335,7 +335,7 @@
   .sheet .sub { margin:4px 0 4px; }
   .grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin:16px 0; }
   .grid button { background:var(--s2); border:1px solid var(--line); border-radius:12px; padding:0 12px; min-height:44px; font-size:14px; display:flex; align-items:center; gap:10px; text-align:left; }
-  .grid button:hover { background:var(--s3); } .grid button.sel { border-color:var(--ac); background:rgba(45,212,160,.08); }
+  .grid button:hover { background:var(--s3); } .grid button.sel { border-color:var(--ac); background:rgba(var(--ac-rgb),.08); }
   .menu { display:flex; flex-direction:column; margin-top:20px; border:1px solid var(--line); border-radius:14px; overflow:hidden; }
   .menu button { display:flex; align-items:center; gap:12px; background:none; border:0; border-top:1px solid var(--line); min-height:48px; padding:0 14px; text-align:left; font-size:14px; border-radius:0; }
   .menu button:first-child { border-top:0; } .menu button:hover { background:var(--s2); } .menu button .ic:first-child { color:var(--mut); } .menu button span { flex:1; } .menu button .chv { width:14px; height:14px; color:var(--mut); }
@@ -388,7 +388,12 @@
 
   /* ---------- LAPTOP (>= 900px) ---------- */
   @media (min-width:900px) {
-    :root { --btn:40px; }
+    :root[data-tema="oceano"] { --bg:#08111C; --s1:#0E1A2A; --s2:#132236; --s3:#1A2C45; --ac:#38BDF8; --ac-ink:#04121C; --ac-rgb:56,189,248; --am:#F5B544; }
+  :root[data-tema="violeta"] { --bg:#0E0B16; --s1:#15111F; --s2:#1B1628; --s3:#241D34; --ac:#A78BFA; --ac-ink:#0E0720; --ac-rgb:167,139,250; --am:#F5B544; }
+  :root[data-tema="atardecer"] { --bg:#130C0B; --s1:#1B1210; --s2:#231815; --s3:#2D201C; --ac:#FB923C; --ac-ink:#1F0C02; --ac-rgb:251,146,60; --am:#FDE68A; }
+  :root[data-tema="rosa"] { --bg:#140A10; --s1:#1C1017; --s2:#25141E; --s3:#301A27; --ac:#F472B6; --ac-ink:#240615; --ac-rgb:244,114,182; --am:#FDE68A; }
+  :root[data-tema="oro"] { --bg:#0D0C09; --s1:#15130E; --s2:#1C1A13; --s3:#26231A; --ac:#E5B84B; --ac-ink:#1F1602; --ac-rgb:229,184,75; --am:#7DD3FC; }
+  :root { --btn:40px; }
     input,select { font-size:14px; }
     #nav { top:0; right:auto; bottom:0; width:var(--nav); height:auto; display:flex; flex-direction:column; gap:2px; padding:22px 12px 16px; background:rgba(14,17,23,.94); border-top:0; border-right:1px solid var(--line); }
     #nav .nav-logo { display:flex; align-items:center; gap:10px; font-size:17px; font-weight:600; letter-spacing:-.015em; padding:2px 10px 24px; }
@@ -459,7 +464,7 @@
 </head>
 <body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><defs>
-  <symbol id="i-qullqi" viewBox="0 0 80 80"><path d="M12 68V56H26V44H40V32H54V20H68V68Z" fill="none" stroke="currentColor" stroke-width="5" stroke-linejoin="round"/><path d="M12 68H68" fill="none" stroke="#2DD4A0" stroke-width="5" stroke-linecap="round"/></symbol><symbol id="i-home" viewBox="0 0 24 24"><path d="M3.5 11 12 4l8.5 7"/><path d="M5.5 9.5V19a1 1 0 0 0 1 1H10v-5.5h4V20h3.5a1 1 0 0 0 1-1V9.5"/></symbol>
+  <symbol id="i-qullqi" viewBox="0 0 80 80"><path d="M12 68V56H26V44H40V32H54V20H68V68Z" fill="none" stroke="currentColor" stroke-width="5" stroke-linejoin="round"/><path d="M12 68H68" fill="none" style="stroke:var(--ac)" stroke-width="5" stroke-linecap="round"/></symbol><symbol id="i-home" viewBox="0 0 24 24"><path d="M3.5 11 12 4l8.5 7"/><path d="M5.5 9.5V19a1 1 0 0 0 1 1H10v-5.5h4V20h3.5a1 1 0 0 0 1-1V9.5"/></symbol>
   <symbol id="i-wallet" viewBox="0 0 24 24"><path d="M4 7.5A2.5 2.5 0 0 1 6.5 5H17a1.5 1.5 0 0 1 1.5 1.5V8"/><path d="M4 7.5V17a2 2 0 0 0 2 2h12.5a1 1 0 0 0 1-1V9a1 1 0 0 0-1-1H6a2 2 0 0 1-2-1.5Z"/><circle cx="15.8" cy="13.5" r=".7" fill="currentColor"/></symbol>
   <symbol id="i-piggy-bank" viewBox="0 0 24 24"><path d="M6.5 11c0-2.8 2.4-5 5.5-5s5.5 2.2 5.5 5c0 1.3-.5 2.4-1.4 3.2V17h-2v-1.2h-4.2V17h-2v-2.8C7 13.4 6.5 12.3 6.5 11Z"/><path d="M6.6 10H5M17.5 10.4H19"/><path d="M10 6.2c.3-1 1-1.7 2-1.7"/><circle cx="14.6" cy="10" r=".7" fill="currentColor"/></symbol>
   <symbol id="i-coins" viewBox="0 0 24 24"><circle cx="9" cy="9" r="5.5"/><path d="M14.6 6.3A5.5 5.5 0 1 1 8.2 14.9"/><path d="M9 7v4M7.6 8.4H10"/></symbol>
@@ -556,7 +561,7 @@
   <nav id="nav" aria-label="Secciones">
     <div class="nav-logo"><span class="mark"><svg class="ic"><use href="#i-qullqi"/></svg></span>Qullqi</div>
     <button data-v="inicio"><svg class="ic"><use href="#i-home"/></svg><span>Inicio</span><kbd>1</kbd></button>
-    <button data-v="presu"><svg class="ic"><use href="#i-wallet"/></svg><span>Bolsas</span><kbd>2</kbd></button>
+    <button data-v="presu"><svg class="ic"><use href="#i-wallet"/></svg><span>Presupuesto</span><kbd>2</kbd></button>
     <button data-v="ingdeu"><svg class="ic"><use href="#i-banknote"/></svg><span>Dinero</span><kbd>3</kbd></button>
     <button data-v="metas"><svg class="ic"><use href="#i-target"/></svg><span>Metas</span><kbd>4</kbd></button>
     <button data-v="stats"><svg class="ic"><use href="#i-trending-up"/></svg><span>Stats</span><kbd>5</kbd></button>
@@ -648,6 +653,6 @@
 </div>
 
 <script src="config.js"></script>
-<script src="app.js?v=9"></script>
+<script src="app.js?v=11"></script>
 </body>
 </html>
