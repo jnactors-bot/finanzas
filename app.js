@@ -1173,6 +1173,17 @@ function gastosDeBolsa(nombre) {
   return (D.movimientos || []).filter((m) => m.tipo === "gasto" && cats.includes(m.categoria));
 }
 
+// Una sola lista, fácil: cuánto gastas al mes en cada cosa, cuánto llevas y cuánto te queda.
+function bolsasUnificadas() {
+  const P = D.presupuesto || {};
+  const ini = (D.ciclo && D.ciclo.inicio) || "";
+  return (P.sueldo || []).map((b) => {
+    const full = (P.bolsas || []).find((x) => x.nombre === b.nombre) || { cats: [] };
+    const g = (D.movimientos || []).filter((m) => m.tipo === "gasto" && m.fecha >= ini && full.cats.includes(m.categoria)).reduce((a, m) => a + m.monto, 0);
+    return { nombre: b.nombre, emoji: b.emoji, monto: b.monto, gastado: Math.round(g), queda: Math.round(b.monto - g) };
+  });
+}
+
 function listaBolsas(lista, modo, limite) {
   const P = D.presupuesto;
   const grid = h("div", "bolsas");
@@ -1205,28 +1216,21 @@ function pintarPresu() {
   const el = $("presu"); el.replaceChildren();
   const P = D.presupuesto; if (!P) return;
   const card = h("div", "card");
-  card.append(cardHead("Bolsas", ["Cada bolsa es un tope para un tipo de gasto. Toca una para ver sus gastos.", vistaPresu === "hoy" ? "Lo que tienes hoy, repartido hasta que caiga tu sueldo (" + P.dias + (P.dias === 1 ? " día" : " días") + ")." : "Lo que te queda libre cada mes después de tus cuotas, repartido por bolsa."]));
-  const tabs = h("div", "seg");
-  [["hoy", "Lo que tengo hoy"], ["sueldo", "Mi plan del mes"]].forEach(([k, t]) => {
-    const b = h("button", vistaPresu === k ? "on" : "", t); b.type = "button"; b.onclick = () => { vistaPresu = k; pintarPresu(); }; tabs.append(b);
-  });
-  card.append(tabs);
-  const exp = h("div", "sub", vistaPresu === "hoy" ? "Esto es para sobrevivir hasta que te paguen: la plata que tienes ahora, repartida por días y por tipo de gasto." : "Esto es para planificar cada mes: lo que te sobra de tu sueldo después de pagar tus cuotas, repartido por tipo de gasto.");
-  exp.style.margin = "10px 0 4px"; card.append(exp);
-  const lista = (vistaPresu === "hoy" ? P.hoy : P.sueldo) || [];
-  if (!lista.length) card.append(vacio("wallet", "Aún no hay bolsas", "Crea una para ordenar tus gastos.", "Nueva bolsa", () => abrirBolsa(null, () => {})));
-  else card.append(listaBolsas(lista, vistaPresu, 0));
+  card.append(cardHead("Cuánto gastas en cada cosa", ["Pon cuánto gastas al mes en cada cosa (comida, transporte, tu carro…). Aquí ves cuánto llevas gastado y cuánto te queda.", "Toca una para ver sus gastos o cambiar el monto."]));
+  const lista = bolsasUnificadas();
+  if (!lista.length) card.append(vacio("wallet", "Aún no pones tus gastos", "Escribe cuánto gastas al mes en cada cosa.", "Mis gastos del mes", () => abrirMisGastos(null)));
+  else card.append(listaBolsas(lista, "hoy", 0));
   const bm = btnIco("p full", "wallet", "Mis gastos del mes"); bm.onclick = () => abrirMisGastos(null); bm.style.marginTop = "16px"; card.append(bm);
-  const bb = btnIco("s full", "pencil", "Editar bolsas una por una"); bb.onclick = abrirBolsas; bb.style.marginTop = "8px"; card.append(bb);
+  const bb = btnIco("s full", "pencil", "Editar una por una"); bb.onclick = abrirBolsas; bb.style.marginTop = "8px"; card.append(bb);
   el.append(card);
 }
 
 function pintarBolsasIni() {
   const el = $("bolsasIni"); el.replaceChildren();
-  const P = D.presupuesto; if (!P || !(P.hoy || []).length) return;
+  const P = D.presupuesto; const uni = bolsasUnificadas(); if (!P || !uni.length) return;
   const card = h("div", "card");
-  card.append(cardHead("Bolsas", "Cada bolsa es un tope para un tipo de gasto. Toca una para ver sus gastos."));
-  card.append(listaBolsas(P.hoy, "hoy", 5));
+  card.append(cardHead("Cuánto gastas en cada cosa", "Lo que llevas gastado contra lo que pusiste para cada cosa. Toca una para ver sus gastos."));
+  card.append(listaBolsas(uni, "hoy", 5));
   const v = h("button", "t"); v.type = "button"; v.append(document.createTextNode("Ver todas las bolsas"), ic("chevron-right", "sm")); v.onclick = () => irVista("presu"); v.style.marginTop = "auto"; v.style.paddingTop = "12px";
   card.append(v); el.append(card);
 }
