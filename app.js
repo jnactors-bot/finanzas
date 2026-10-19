@@ -1186,7 +1186,7 @@ function listaBolsas(lista, modo, limite) {
       const m = h("span", "m" + (neg ? " neg" : "")); if (neg) m.append(ic("alert-triangle", "sm"), document.createTextNode(" −" + S(-b.queda))); else m.textContent = "Queda " + S(b.queda);
       top.append(m);
       t.append(top, h("span", "s", S(b.gastado) + " de " + S(b.monto)), bar(b.monto > 0 ? b.gastado / b.monto * 100 : (b.gastado > 0 ? 100 : 0), neg ? C_RED : col));
-    } else { top.append(h("span", "m", S(b.monto))); t.append(top, h("span", "s", b.pct + "% de lo libre"), bar(b.pct, col)); }
+    } else { top.append(h("span", "m", S(b.monto))); t.append(top, h("span", "s", b.modo === "monto" ? "Monto fijo al mes" : b.pct + "% de lo que te sobra al mes"), bar(b.modo === "monto" ? Math.min(100, b.monto / Math.max(1, P.baseSueldo || b.monto) * 100) : b.pct, col)); }
     head.append(bolsaIco(b, col), t, ic("chevron-down", "sm chev"));
     const det = h("div", "det"); const din = h("div"); const dc = h("div", "det-in");
     const gs = gastosDeBolsa(b.nombre).slice(0, 4);
@@ -1207,10 +1207,12 @@ function pintarPresu() {
   const card = h("div", "card");
   card.append(cardHead("Bolsas", ["Cada bolsa es un tope para un tipo de gasto. Toca una para ver sus gastos.", vistaPresu === "hoy" ? "Lo que tienes hoy, repartido hasta que caiga tu sueldo (" + P.dias + (P.dias === 1 ? " día" : " días") + ")." : "Lo que te queda libre cada mes después de tus cuotas, repartido por bolsa."]));
   const tabs = h("div", "seg");
-  [["hoy", "Hasta el pago"], ["sueldo", "Con sueldo"]].forEach(([k, t]) => {
+  [["hoy", "Lo que tengo hoy"], ["sueldo", "Mi plan del mes"]].forEach(([k, t]) => {
     const b = h("button", vistaPresu === k ? "on" : "", t); b.type = "button"; b.onclick = () => { vistaPresu = k; pintarPresu(); }; tabs.append(b);
   });
   card.append(tabs);
+  const exp = h("div", "sub", vistaPresu === "hoy" ? "Esto es para sobrevivir hasta que te paguen: la plata que tienes ahora, repartida por días y por tipo de gasto." : "Esto es para planificar cada mes: lo que te sobra de tu sueldo después de pagar tus cuotas, repartido por tipo de gasto.");
+  exp.style.margin = "10px 0 4px"; card.append(exp);
   const lista = (vistaPresu === "hoy" ? P.hoy : P.sueldo) || [];
   if (!lista.length) card.append(vacio("wallet", "Aún no hay bolsas", "Crea una para ordenar tus gastos.", "Nueva bolsa", () => abrirBolsa(null, () => {})));
   else card.append(listaBolsas(lista, vistaPresu, 0));
