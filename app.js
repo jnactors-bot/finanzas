@@ -381,6 +381,79 @@ function abrirBolsa(b, volver) {
   });
 }
 
+// "Mis gastos del mes": cada persona pone cuánto gasta al mes en cada cosa (comida, transporte, su carro, etc.).
+function montoMensualDe(b) {
+  if (b.modo === "monto") return b.montoSueldo || 0;
+  const s = ((D.presupuesto && D.presupuesto.sueldo) || []).find((x) => x.nombre === b.nombre);
+  return s ? s.monto : 0;
+}
+
+function abrirMisGastos(volver) {
+  const bs = (D.presupuesto && D.presupuesto.bolsas) || [];
+  const total = bs.reduce((a, b) => a + montoMensualDe(b), 0);
+  formModal({
+    titulo: "Mis gastos del mes",
+    nota: "Escribe cuánto gastas al mes en cada cosa. Pon 0 en lo que no uses. Los montos son tuyos: cámbialos cuando quieras.",
+    campos: bs.map((b, i) => ({ k: "g" + i, label: b.nombre + " (" + mon() + " al mes)", tipo: "number", valor: Math.round(montoMensualDe(b)), ayuda: i === 0 ? "Ahora suman " + S(total) + " al mes." : undefined })),
+    extra: (box) => {
+      const nb = btnIco("s full", "plus", "Agregar otro gasto (ej. mi carro)"); nb.style.marginTop = "10px";
+      nb.onclick = () => abrirNuevoGasto(() => abrirMisGastos(volver));
+      box.append(nb);
+    },
+    textoGuardar: "Guardar mis gastos",
+    onGuardar: async (v) => {
+      const lista = bs.map((b, i) => ({ original: b.nombre, nombre: b.nombre, emoji: b.emoji, cats: b.cats.join(","), montoSueldo: Number(v["g" + i] || 0) }));
+      await guardarYCerrar("bolsas_lote", { lista }, "Gastos guardados");
+      if (volver) volver();
+    },
+    onCerrar: volver,
+  });
+}
+
+function abrirNuevoGasto(volver) {
+  const propias = String((D.config && D.config.categorias) || "").split(",").map((x) => x.trim()).filter(Boolean);
+  const cats = D.categorias.concat(propias.filter((x) => !D.categorias.includes(x)));
+  formModal({
+    titulo: "Agregar otro gasto",
+    nota: "Por ejemplo: «Mi carro», «Mascota» o «Gimnasio». Elige qué gastos cuentan aquí.",
+    campos: [
+      { k: "nombre", label: "Nombre", valor: "", ph: "Mi carro" },
+      { k: "monto", label: "Cuánto gastas al mes (" + mon() + ")", tipo: "number", valor: "" },
+      { k: "cat", label: "¿Qué categoría cuenta aquí?", tipo: "select", opciones: [["__nueva", "Una categoría nueva (la creo ahora)"]].concat(cats.map((k) => [k, NOMBRE[k] || k])), valor: "__nueva" },
+      { k: "nueva", label: "Nombre de la categoría nueva", valor: "", ph: "carro", ayuda: "Solo si elegiste «categoría nueva». Letras y números." },
+    ],
+    textoGuardar: "Agregar",
+    onGuardar: async (v) => {
+      const nombre = (v.nombre || "").trim(); if (!nombre) throw new Error("Escribe un nombre.");
+      const monto = Number(v.monto || 0); if (monto < 0) throw new Error("El monto no puede ser negativo.");
+      let cat = v.cat;
+      if (cat === "__nueva") {
+        cat = (v.nueva || nombre).toLowerCase().replace(/\s+/g, " ").trim().slice(0, 20);
+        if (!/^[0-9a-záéíóúüñ ]{1,20}$/.test(cat)) throw new Error("La categoría solo puede tener letras y números.");
+        if (!D.categorias.includes(cat)) await api("perfil_guardar", { moneda: mon(), categorias: propias.concat(cat).filter((x, i, a) => a.indexOf(x) === i).join(",") });
+      }
+      await guardarYCerrar("bolsas_lote", { lista: [{ nombre, emoji: "💠", cats: cat, montoSueldo: monto }] }, "Gasto agregado");
+      if (volver) volver();
+    },
+    onCerrar: volver,
+  });
+}
+
+function abrirEditarPago() {
+  const c = D.config;
+  formModal({
+    titulo: "Pago de este ciclo",
+    nota: "Si te equivocaste de monto o de fecha, corrígelo aquí. También puedes quitarlo.",
+    campos: [
+      { k: "dinero_ciclo", label: "Plata que te cayó (" + mon() + ")", tipo: "number", valor: c.dinero_ciclo || 0 },
+      { k: "ultimo_pago", label: "Fecha en que te cayó (AAAA-MM-DD)", valor: c.ultimo_pago || D.hoy || "" },
+    ],
+    onGuardar: async (v) => { await guardarYCerrar("config_set", { valores: { dinero_ciclo: Number(v.dinero_ciclo || 0), ultimo_pago: v.ultimo_pago } }, "Pago corregido"); },
+    onBorrar: async () => { await guardarYCerrar("config_set", { valores: { dinero_ciclo: 0 } }, "Pago quitado"); },
+    nombreBorrar: "este pago",
+  });
+}
+
 function abrirBolsas() {
   const bs = D.presupuesto.bolsas;
   listaModal("Tus bolsas", "Toca una para cambiar cuánto le toca.",
@@ -539,7 +612,7 @@ function abrirCfg() {
     ].filter((x) => !x.solo || admin),
     extra: (box) => {
       const menu = h("div", "menu");
-      [["user", "Mi perfil", abrirPerfil], ["target", "Mis metas", abrirMetas], ["file-text", "Subir boleta", abrirBoleta], ["wallet", "Deudas", abrirDeudas], ["banknote", "Ingresos extra", abrirIngresos], ["coins", "Bolsas", abrirBolsas], admin && ["building", "Bancos", () => abrirBancos(abrirCfg)], admin && ["users", "Usuarios", abrirUsuarios], ["compass", "Guía de inicio", abrirWizard], ["play", "Cómo funciona", () => abrirVideo(true)], ["check-circle", "Ya me pagaron", abrirNuevoCiclo], ["log-out", "Cerrar sesión", () => { cerrarForm(); cerrarSesion(""); }]].filter(Boolean).forEach(([i, t, f]) => {
+      [["user", "Mi perfil", abrirPerfil], ["target", "Mis metas", abrirMetas], ["file-text", "Subir boleta", abrirBoleta], ["wallet", "Deudas", abrirDeudas], ["banknote", "Ingresos extra", abrirIngresos], ["wallet", "Mis gastos del mes", () => abrirMisGastos(abrirCfg)], ["coins", "Bolsas", abrirBolsas], admin && ["building", "Bancos", () => abrirBancos(abrirCfg)], admin && ["users", "Usuarios", abrirUsuarios], ["compass", "Guía de inicio", abrirWizard], ["play", "Cómo funciona", () => abrirVideo(true)], ["check-circle", "Ya me pagaron", abrirNuevoCiclo], ["log-out", "Cerrar sesión", () => { cerrarForm(); cerrarSesion(""); }]].filter(Boolean).forEach(([i, t, f]) => {
         const b = h("button", ""); b.type = "button"; b.append(ic(i), h("span", "", t), ic("chevron-right", "chv")); b.onclick = f; menu.append(b);
       });
       box.append(menu);
@@ -953,6 +1026,8 @@ function pintarIngresos(c) {
   };
   const tt = h("div", "total"); tt.append(h("span", "", "Esperas este ciclo")); const tb = h("b"); cnt(tb, "ing_tot", tot); tt.append(tb); card.append(tt);
   if (cfg.sueldo_neto > 0) card.append(fila("building", C_AC, "Sueldo", "Fijo · días " + parseInt(c.ventana.desde.slice(8), 10) + " a " + parseInt(c.ventana.hasta.slice(8), 10), S(cfg.sueldo_neto), cfg.sueldo_neto / tot * 100, abrirBoleta));
+  if (cfg.dinero_ciclo > 0) card.append(fila("check-circle", C_AC, "Pago de este ciclo", "Recibido el " + (cfg.ultimo_pago ? fecha(cfg.ultimo_pago) : "—") + " · toca para corregir", S(cfg.dinero_ciclo), Math.min(100, cfg.dinero_ciclo / tot * 100), abrirEditarPago));
+  (D.movimientos || []).filter((m) => m.tipo === "ingreso" && m.fuente === "app-ingreso").forEach((m) => card.append(fila("arrow-down-left", C_AC, m.comercio, "Anotado el " + fecha(m.fecha) + " · toca para corregir", S(m.monto), Math.min(100, m.monto / tot * 100), () => abrirMov(m))));
   ext.forEach((i) => card.append(fila("banknote", C_AM, i.nombre, "Variable · " + (i.fecha ? fecha(i.fecha) : "sin fecha") + (i.max > i.min ? " · hasta " + S(i.max) : ""), S(i.min), i.min / tot * 100, () => abrirIngreso((D.finanzas.ingresos || []).find((x) => x.nombre === i.nombre) || i, null))));
   if (cfg.sueldo_neto <= 0 && !ext.length) card.append(vacio("banknote", "Aún no hay ingresos", "Anota tu sueldo o un pago que esperas."));
   const row = h("div", "row");
@@ -1072,7 +1147,8 @@ function pintarPresu() {
   const lista = (vistaPresu === "hoy" ? P.hoy : P.sueldo) || [];
   if (!lista.length) card.append(vacio("wallet", "Aún no hay bolsas", "Crea una para ordenar tus gastos.", "Nueva bolsa", () => abrirBolsa(null, () => {})));
   else card.append(listaBolsas(lista, vistaPresu, 0));
-  const bb = btnIco("s full", "pencil", "Editar bolsas"); bb.onclick = abrirBolsas; bb.style.marginTop = "16px"; card.append(bb);
+  const bm = btnIco("p full", "wallet", "Mis gastos del mes"); bm.onclick = () => abrirMisGastos(null); bm.style.marginTop = "16px"; card.append(bm);
+  const bb = btnIco("s full", "pencil", "Editar bolsas una por una"); bb.onclick = abrirBolsas; bb.style.marginTop = "8px"; card.append(bb);
   el.append(card);
 }
 
