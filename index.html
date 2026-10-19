@@ -520,7 +520,6 @@
     <div id="gbtn"></div>
     <div id="loginMsg" class="msg bad" style="text-align:center"></div>
     <div class="row"><button class="s" id="loginReintentar" hidden>Reintentar</button></div>
-    <div class="row vrow"><button class="s" type="button" data-video><svg class="ic sm"><use href="#i-play"/></svg>Ver cómo funciona</button></div>
     <div class="auth-foot"><svg class="ic sm"><use href="#i-lock"/></svg>Tus datos se guardan en un Sheet privado.</div>
   </section>
 
@@ -536,7 +535,7 @@
     <input id="regCel" type="tel" inputmode="tel" autocomplete="tel" placeholder="Ej.: 987654321">
     <label for="regEdad">Edad</label>
     <input id="regEdad" type="number" inputmode="numeric" min="14" max="100">
-    <label class="chk"><input type="checkbox" id="regAcepto"> <span>Entiendo que mis datos se guardan en un Sheet privado creado para mí; el administrador de la app podría acceder técnicamente a él.</span></label>
+    <label class="chk"><input type="checkbox" id="regAcepto"> <span>He leído y acepto los <a href="#" id="lnkTerminos">Términos de uso</a> y la <a href="#" id="lnkPrivacidad">Política de privacidad</a>.</span></label>
     <div id="regMsg" class="msg bad"></div>
     <div class="row"><button class="p" id="regEnviar">Enviar solicitud</button><button class="s" id="regSalir">Salir</button></div>
     <div class="row vrow"><button class="s" type="button" data-video><svg class="ic sm"><use href="#i-play"/></svg>Ver cómo funciona</button></div>
@@ -548,7 +547,6 @@
     <p class="auth-s sub" id="esperaTxt">Te avisaremos cuando esté lista. Vuelve a revisar en un rato.</p>
     <div id="esperaMsg" class="msg bad" style="text-align:center"></div>
     <div class="row"><button class="p" id="esperaRevisar">Revisar de nuevo</button><button class="s" id="esperaSalir">Salir</button></div>
-    <div class="row vrow"><button class="s" type="button" data-video><svg class="ic sm"><use href="#i-play"/></svg>Ver cómo funciona</button></div>
   </section>
 </div>
 
@@ -648,6 +646,6 @@
 </div>
 
 <script src="config.js"></script>
-<script src="app.js"></script>
+<script src="app.js?v=5"></script>
 </body>
 </html>

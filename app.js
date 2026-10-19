@@ -174,13 +174,54 @@ function aplicarRol() {
   $("btnUsers").hidden = !admin;
 }
 
+// ---------- términos y privacidad ----------
+const LEGAL_ACT = "19 de octubre de 2026";
+const LEGAL = {
+  privacidad: {
+    titulo: "Política de privacidad",
+    partes: [
+      ["Qué datos guardamos", "Tu correo de Google, tu nombre, tu celular y tu edad. Y lo que tú anotas en la app: gastos, ingresos, deudas, metas y los datos de la boleta de pago que subas (el archivo PDF no se sube: se lee en tu equipo)."],
+      ["Para qué los usamos", "Para aprobar tu acceso y para calcular tu presupuesto, tus bolsas y tus estadísticas. No usamos tus datos para publicidad."],
+      ["Dónde se guardan", "En una hoja de Google Sheets privada creada solo para ti, dentro de la cuenta de Google del administrador de la app. Ninguna otra persona usuaria puede ver tu hoja. El administrador podría, técnicamente, abrirla; se compromete a no hacerlo salvo para soporte que tú pidas."],
+      ["Lo que NO hacemos", "No vendemos ni compartimos tus datos con terceros. La app no lee tu correo, no te pide claves de bancos y no mueve dinero."],
+      ["Inicio de sesión", "Lo hace Google. La app solo recibe tu correo verificado."],
+      ["Tus derechos", "Según la Ley 29733 de protección de datos personales (Perú), puedes pedir ver, corregir o borrar tus datos y tu cuenta. Escribe al administrador: jnactors@gmail.com."],
+      ["Seguridad", "Cada pedido se valida con tu sesión de Google. Aun así, ningún sistema es 100 % seguro: no anotes datos que no quieras guardar."],
+      ["Edad", "Debes tener al menos 14 años. Si eres menor de 18, usa la app con permiso de un adulto."],
+    ],
+  },
+  terminos: {
+    titulo: "Términos de uso",
+    partes: [
+      ["Qué es esta app", "Una herramienta para organizar tu plata: te ayuda a ver cuánto puedes gastar y a seguir tus deudas y metas."],
+      ["No es asesoría financiera", "Los cálculos y consejos son orientativos y pueden tener errores. Las decisiones sobre tu dinero son tuyas; revisa siempre tus cuentas reales."],
+      ["Acceso", "Tu cuenta debe ser aprobada por el administrador. Puede aprobar, dejar en revisión o bloquear cuentas, por ejemplo si se usa mal la app."],
+      ["Tu responsabilidad", "Usa datos verdaderos en tu registro y no uses la app para fines ilegales. Cuida tu cuenta de Google."],
+      ["Cambios y servicio", "La app es gratuita y se ofrece tal cual. Puede cambiar, tener cortes o cerrarse; avisaremos cuando sea posible. Si cambian estos términos, te los mostraremos de nuevo."],
+    ],
+  },
+};
+function abrirLegal(tipo) {
+  const L = LEGAL[tipo];
+  formModal({
+    titulo: L.titulo,
+    nota: "Última actualización: " + LEGAL_ACT + ".",
+    extra: (box) => {
+      L.partes.forEach(([t, x]) => { const b = h("b", "", t); b.style.cssText = "display:block;margin-top:14px"; const p = h("div", "sub", x); p.style.marginTop = "4px"; box.append(b, p); });
+    },
+    textoCerrar: "Entendido",
+  });
+}
+$("lnkTerminos").onclick = (e) => { e.preventDefault(); abrirLegal("terminos"); };
+$("lnkPrivacidad").onclick = (e) => { e.preventDefault(); abrirLegal("privacidad"); };
+
 $("regEnviar").onclick = async () => {
   const nombre = $("regNombre").value.trim(), cel = $("regCel").value.replace(/[\s()+-]/g, ""), edad = Number($("regEdad").value);
   const m = $("regMsg"); m.textContent = "";
   if (nombre.length < 2) return void (m.textContent = "Escribe tu nombre.");
   if (!/^\d{7,15}$/.test(cel)) return void (m.textContent = "Escribe un celular de 7 a 15 números.");
   if (!(edad >= 14 && edad <= 100)) return void (m.textContent = "La edad debe estar entre 14 y 100.");
-  if (!$("regAcepto").checked) return void (m.textContent = "Marca la casilla para continuar.");
+  if (!$("regAcepto").checked) return void (m.textContent = "Acepta los términos y la política de privacidad para continuar.");
   $("regEnviar").disabled = true;
   try { rutear(await api("registrar", { nombre, celular: cel, edad, acepto: true })); } catch (e) { m.textContent = e.message; }
   $("regEnviar").disabled = false;
