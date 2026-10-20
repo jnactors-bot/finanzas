@@ -1,5 +1,6 @@
 const $ = (id) => document.getElementById(id);
-const K_TOK = "finanzas_idtoken", K_TEMA = "qullqi_tema";
+const K_TOK = "finanzas_idtoken", K_TEMA = "qullqi_tema", K_SES = "qullqi_sesion", K_ME = "qullqi_me", K_D = "qullqi_panel";
+let SES = "";
 const TEMAS = [
   { id: "esmeralda", nombre: "Esmeralda", bg: "#0B0D12", ac: "#2DD4A0", am: "#F5B544" },
   { id: "oceano", nombre: "Océano", bg: "#08111C", ac: "#38BDF8", am: "#F5B544" },
@@ -125,20 +126,27 @@ function mostrarLogin(msg, reintentar) {
 }
 
 function cerrarSesion(msg) {
-  TOK = ""; TOK_EXP = 0; D = null; ME = null; wizardMostrado = false; ssSet(K_TOK, "");
+  TOK = ""; TOK_EXP = 0; SES = ""; D = null; ME = null; wizardMostrado = false; ssSet(K_TOK, ""); ssSet(K_SES, ""); ssSet(K_ME, ""); ssSet(K_D, "");
   try { window.google.accounts.id.disableAutoSelect(); } catch {}
   mostrarLogin(msg);
 }
 
 async function api(action, extra = {}, reintento = false) {
-  if (!tokenValido() && !(await renovarToken())) { cerrarSesion("Tu sesión venció. Entra otra vez."); throw new Error("Tu sesión venció. Entra otra vez."); }
+  let cuerpo;
+  if (SES) cuerpo = { sesion: SES, action, ...extra };
+  else {
+    if (!tokenValido() && !(await renovarToken())) { cerrarSesion("Tu sesión venció. Entra otra vez."); throw new Error("Tu sesión venció. Entra otra vez."); }
+    cuerpo = { idToken: TOK, action, ...extra };
+  }
   // text/plain evita la consulta previa (CORS) que Apps Script no responde.
   const res = await fetch(getUrl(), {
     method: "POST",
     headers: { "content-type": "text/plain;charset=utf-8" },
-    body: JSON.stringify({ idToken: TOK, action, ...extra }),
+    body: JSON.stringify(cuerpo),
   });
   const data = await res.json().catch(() => ({}));
+  if (data.sesion) { SES = data.sesion; ssSet(K_SES, SES); }
+  if (data.auth === false && SES) { SES = ""; ssSet(K_SES, ""); return api(action, extra, reintento); } // la sesión venció: se vuelve a Google una vez
   if (data.auth === false) {
     TOK = ""; TOK_EXP = 0; ssSet(K_TOK, "");
     if (!reintento && (await renovarToken())) return api(action, extra, true);
@@ -153,6 +161,15 @@ async function iniciar() {
   if (!getUrl()) return mostrarLogin("Falta la dirección del servidor en config.js (SCRIPT_URL).");
   if (!CLIENT_ID()) return mostrarLogin("Falta configurar el acceso con Google (GOOGLE_CLIENT_ID en config.js).");
   pantalla("splash"); // no mostramos el cuadro de Google hasta saber que de verdad hace falta
+  SES = ssGet(K_SES);
+  if (SES) {
+    // Sesión de 30 días: se abre al instante con lo último que se vio y se actualiza por detrás.
+    try {
+      const me0 = JSON.parse(ssGet(K_ME) || "null"), d0 = JSON.parse(ssGet(K_D) || "null");
+      if (me0 && me0.estado === "Aprobado" && d0 && d0.ciclo) { ME = me0; D = d0; pantalla("app"); aplicarRol(); pintar(); cargar().catch(() => {}); return; }
+    } catch {}
+    return entrar();
+  }
   const t = ssGet(K_TOK);
   if (t) { guardarToken(t); if (tokenValido()) { entrar(); cargarGis().then(iniciarGis).catch(() => {}); return; } }
   try { await cargarGis(); iniciarGis(); } catch (e) { return mostrarLogin(e.message, true); }
@@ -161,7 +178,7 @@ async function iniciar() {
 }
 
 async function entrar() {
-  try { ME = await api("me"); rutear(ME); } catch (e) { if (!ME) mostrarLogin(e.message, false); }
+  try { ME = await api("me"); ssSet(K_ME, JSON.stringify(ME)); rutear(ME); } catch (e) { if (!ME) mostrarLogin(e.message, false); }
 }
 
 function rutear(m) {
@@ -256,6 +273,7 @@ async function cargar(accion = "dashboard", extra = {}) {
   if (ACC_RAPIDAS.includes(accion)) { rapido(accion, extra); return D; }
   try {
     D = await api(accion, extra);
+    try { ssSet(K_D, JSON.stringify(D)); } catch {}
     pintar();
     if (ME && ME.admin && accion === "dashboard") contarPendientes();
     if (D.setup && !D.setup.hecho && !wizardMostrado) { wizardMostrado = true; abrirWizard(); }
@@ -351,7 +369,8 @@ function recalcLocal() {
   new Set([...Object.keys(A.pc), ...Object.keys(B.pc)]).forEach((k) => { pc[k] = Math.max(0, (pc[k] || 0) + (B.pc[k] || 0) - (A.pc[k] || 0)); }); c.porCategoria = pc;
   __A = B;
   if (c.estado === "esperando") return;
-  c.presupuesto = (cfg.dinero_ciclo || 0) + c.ingresosApp - (cfg.ahorro || 0) - (cfg.fijos_total || 0);
+  c.fijosPendientes = (D.fijos || []).filter((f) => !f.pagado && f.vence && f.vence <= c.fin).reduce((t, f) => t + f.monto, 0);
+  c.presupuesto = (cfg.dinero_ciclo || 0) + c.ingresosApp - (cfg.ahorro || 0) - (cfg.fijos_total || 0) - c.fijosPendientes;
   c.disponible = c.presupuesto - c.gastado - c.programado;
   c.porDia = Math.max(0, c.disponible) / Math.max(1, c.restan);
   c.proyeccion = c.gastado / Math.max(1, c.pasados) * c.total;
@@ -405,6 +424,24 @@ function aplicarLocal(a, d) {
     case "ingreso_borrar": D.finanzas.ingresos = (D.finanzas.ingresos || []).filter((x) => x.nombre !== d.nombre); return true;
     case "meta_guardar": { D.metas = D.metas || []; const ob = Number(d.objetivo), ah = Number(d.ahorrado || 0); upsert(D.metas, d.original || d.nombre, { nombre: d.nombre, objetivo: ob, ahorrado: ah, fecha: d.fecha || "", pct: ob > 0 ? Math.min(100, Math.round(ah / ob * 100)) : 0 }); return true; }
     case "meta_borrar": D.metas = (D.metas || []).filter((x) => x.nombre !== d.nombre); return true;
+    case "fijo_guardar": {
+      D.fijos = D.fijos || []; const dd = Number(d.dia) || 1, dH = parseInt(hoy.slice(8, 10), 10);
+      const ex = D.fijos.find((x) => x.nombre === (d.original || d.nombre));
+      upsert(D.fijos, d.original || d.nombre, { nombre: d.nombre, monto: Number(d.monto), dia: dd, categoria: d.categoria || "otros", pagado: ex ? ex.pagado : false, vence: ex && ex.pagado ? "" : (dd < dH ? hoy : hoy.slice(0, 7) + "-" + String(dd).padStart(2, "0")), atrasado: !(ex && ex.pagado) && dd < dH });
+      recalcLocal(); return true;
+    }
+    case "fijo_borrar": D.fijos = (D.fijos || []).filter((x) => x.nombre !== d.nombre); recalcLocal(); return true;
+    case "fijo_pagar": {
+      const f = (D.fijos || []).find((x) => x.nombre === d.nombre); if (!f) return false;
+      if (d.pagado !== false && !f.pagado) {
+        f.pagado = true; f.vence = ""; f.atrasado = false;
+        D.movimientos.unshift({ id: "tmp" + Date.now(), fecha: hoy, hora: new Date().toTimeString().slice(0, 5), monto: f.monto, comercio: f.nombre, banco: "manual", medio: "pago fijo", categoria: f.categoria, fuente: "app-fijo", tipo: "gasto", notas: "" });
+      } else if (d.pagado === false && f.pagado) {
+        f.pagado = false; const dH = parseInt(hoy.slice(8, 10), 10); f.vence = f.dia < dH ? hoy : hoy.slice(0, 7) + "-" + String(f.dia).padStart(2, "0"); f.atrasado = f.dia < dH;
+        const i = D.movimientos.findIndex((m) => m.fuente === "app-fijo" && m.comercio === f.nombre && m.fecha === hoy); if (i >= 0) D.movimientos.splice(i, 1);
+      }
+      recalcLocal(); return true;
+    }
     case "bolsa_borrar": { const P2 = D.presupuesto; ["bolsas", "hoy", "sueldo"].forEach((k) => { if (P2[k]) P2[k] = P2[k].filter((x) => x.nombre !== d.nombre); }); return true; }
     case "bolsas_lote": {
       const P2 = D.presupuesto; P2.bolsas = P2.bolsas || []; P2.sueldo = P2.sueldo || [];
@@ -434,7 +471,7 @@ function rapido(accion, datos, mensaje) {
   cerrarForm(); if (mensaje) say(mensaje, "ok");
   pendientes++;
   colaApi = colaApi.then(() => api(accion, datos)).then((r) => {
-    pendientes--; if (pendientes === 0) { D = r; pintar(); }
+    pendientes--; if (pendientes === 0) { D = r; try { ssSet(K_D, JSON.stringify(D)); } catch {} pintar(); }
   }).catch((e) => {
     pendientes--; D = JSON.parse(snap); pintar(); say("No se pudo guardar: " + e.message, "bad");
   });
@@ -604,8 +641,7 @@ function abrirNuevoGasto(volver) {
     campos: [
       { k: "nombre", label: "Nombre", valor: "", ph: "Mi carro" },
       { k: "monto", label: "Cuánto gastas al mes (" + mon() + ")", tipo: "number", valor: "" },
-      { k: "cat", label: "¿Qué categoría cuenta aquí?", tipo: "select", opciones: [["__nueva", "Una categoría nueva (la creo ahora)"]].concat(cats.map((k) => [k, NOMBRE[k] || k])), valor: "__nueva" },
-      { k: "nueva", label: "Nombre de la categoría nueva", valor: "", ph: "carro", ayuda: "Solo si elegiste «categoría nueva». Letras y números." },
+      { k: "cat", label: "¿Qué gastos cuentan aquí?", tipo: "select", opciones: [["__nueva", "Una categoría nueva con este mismo nombre"]].concat(cats.map((k) => [k, NOMBRE[k] || k])), valor: "__nueva" },
     ],
     textoGuardar: "Agregar",
     onGuardar: async (v) => {
@@ -613,7 +649,7 @@ function abrirNuevoGasto(volver) {
       const monto = Number(v.monto || 0); if (monto < 0) throw new Error("El monto no puede ser negativo.");
       let cat = v.cat;
       if (cat === "__nueva") {
-        cat = (v.nueva || nombre).toLowerCase().replace(/\s+/g, " ").trim().slice(0, 20);
+        cat = nombre.toLowerCase().replace(/\s+/g, " ").trim().slice(0, 20);
         if (!/^[0-9a-záéíóúüñ ]{1,20}$/.test(cat)) throw new Error("La categoría solo puede tener letras y números.");
         if (!D.categorias.includes(cat)) await api("perfil_guardar", { moneda: mon(), categorias: propias.concat(cat).filter((x, i, a) => a.indexOf(x) === i).join(",") });
       }
@@ -850,7 +886,7 @@ function abrirCfg() {
     ],
     extra: (box) => {
       const menu = h("div", "menu");
-      [["building", "Sueldo y fecha de pago", abrirSueldo], ["wallet", "Mis gastos del mes", () => abrirMisGastos(abrirCfg)], ["wallet", "Deudas", abrirDeudas], ["banknote", "Ingresos extra", abrirIngresos], ["target", "Mis metas", abrirMetas], ["file-text", "Subir boleta", abrirBoleta], ["user", "Mi perfil", abrirPerfil], ["settings", "Más ajustes", abrirCfgMas], ["sparkles", "Colores", abrirColores], ["coins", "Bolsas una por una", abrirBolsas], admin && ["building", "Bancos", () => abrirBancos(abrirCfg)], admin && ["users", "Usuarios", abrirUsuarios], ["compass", "Guía de inicio", abrirWizard], ["play", "Cómo funciona", () => abrirVideo(true)], ["check-circle", "Ya me pagaron", abrirNuevoCiclo], ["log-out", "Cerrar sesión", () => { cerrarForm(); cerrarSesion(""); }]].filter(Boolean).forEach(([i, t, f]) => {
+      [["building", "Sueldo y fecha de pago", abrirSueldo], ["wallet", "Mis gastos del mes", () => abrirMisGastos(abrirCfg)], ["receipt", "Pagos fijos", () => { cerrarForm(); irVista("ingdeu"); }], ["wallet", "Deudas", abrirDeudas], ["banknote", "Ingresos extra", abrirIngresos], ["target", "Mis metas", abrirMetas], ["file-text", "Subir boleta", abrirBoleta], ["user", "Mi perfil", abrirPerfil], ["settings", "Más ajustes", abrirCfgMas], ["sparkles", "Colores", abrirColores], ["coins", "Bolsas una por una", abrirBolsas], admin && ["building", "Bancos", () => abrirBancos(abrirCfg)], admin && ["users", "Usuarios", abrirUsuarios], ["compass", "Guía de inicio", abrirWizard], ["play", "Cómo funciona", () => abrirVideo(true)], ["check-circle", "Ya me pagaron", abrirNuevoCiclo], ["log-out", "Cerrar sesión", () => { cerrarForm(); cerrarSesion(""); }]].filter(Boolean).forEach(([i, t, f]) => {
         const b = h("button", ""); b.type = "button"; b.append(ic(i), h("span", "", t), ic("chevron-right", "chv")); b.onclick = f; menu.append(b);
       });
       box.append(menu);
@@ -1214,7 +1250,7 @@ function pintar() {
   registrarCats();
   const c = D.ciclo;
   const ci = $("ciclo"); ci.replaceChildren(ic("calendar", "sm"), document.createTextNode(fecha(c.inicio) + " → " + fecha(c.ventana.hasta)));
-  pintarBanner(); pintarEstado(c); pintarHoy(c); pintarIngresos(c); pintarMetas(); pintarPresu(); pintarBolsasIni(); pintarLinea(c); pintarDonut(c); pintarConsejos(); pintarFinanzas(); pintarMovs();
+  pintarBanner(); pintarEstado(c); pintarHoy(c); pintarFijos(); pintarIngresos(c); pintarMetas(); pintarPresu(); pintarBolsasIni(); pintarLinea(c); pintarDonut(c); pintarConsejos(); pintarFinanzas(); pintarMovs();
   try { pintarStats(); } catch (e) { $("stats").replaceChildren(); }
   $("app").classList.add("ready");
 }
@@ -1298,6 +1334,56 @@ function pintarMetas() {
 
 const ESTADO = { verde: ["En orden", "check-circle", C_AC], amarillo: ["Con cuidado", "alert-triangle", C_AM], rojo: ["En riesgo", "alert-triangle", C_RED] };
 
+function abrirFijo(f, volver) {
+  const propias = String((D.config && D.config.categorias) || "").split(",").map((x) => x.trim()).filter(Boolean);
+  const cats = D.categorias.concat(propias.filter((x) => !D.categorias.includes(x)));
+  formModal({
+    titulo: f ? f.nombre : "Nuevo pago fijo",
+    nota: "Algo que pagas todos los meses: suscripción, gimnasio, cuota… Marca cuándo lo pagas y la app lo cuenta.",
+    campos: [
+      { k: "nombre", label: "¿Qué pagas?", valor: f ? f.nombre : "", ph: "Ej.: Spotify" },
+      { k: "monto", label: "Cuánto es (" + mon() + ")", tipo: "number", valor: f ? f.monto : "" },
+      { k: "dia", label: "¿Qué día del mes te cobran? (1 a 31)", tipo: "number", valor: f ? f.dia : "" },
+      { k: "categoria", label: "Categoría", tipo: "select", opciones: cats.map((k) => [k, NOMBRE[k] || k]), valor: f ? f.categoria : "suscripciones" },
+    ],
+    onGuardar: async (v) => {
+      if (!(v.nombre || "").trim()) throw new Error("Escribe qué pagas.");
+      if (!(Number(v.monto) > 0)) throw new Error("El monto debe ser mayor a 0.");
+      const dia = Number(v.dia); if (!(dia >= 1 && dia <= 31)) throw new Error("El día va de 1 a 31.");
+      rapido("fijo_guardar", { original: f ? f.nombre : undefined, nombre: v.nombre.trim(), monto: Number(v.monto), dia, categoria: v.categoria }, "Pago fijo guardado"); if (volver) volver();
+    },
+    onBorrar: f ? async () => { rapido("fijo_borrar", { nombre: f.nombre }, "Pago fijo borrado"); if (volver) volver(); } : null,
+    nombreBorrar: f ? f.nombre : "",
+    onCerrar: volver,
+  });
+}
+
+function pintarFijos() {
+  const el = $("fijos"); if (!el) return; el.replaceChildren();
+  const L = D.fijos || [];
+  const card = h("div", "card");
+  card.append(cardHead("Pagos fijos del mes", "Marca cada pago cuando lo hagas. Lo pendiente que vence antes de tu próximo pago se reserva de tu plata."));
+  const pend = L.filter((f) => !f.pagado).reduce((t, f) => t + f.monto, 0), pag = L.filter((f) => f.pagado).reduce((t, f) => t + f.monto, 0);
+  if (L.length) {
+    const tt = h("div", "total"); tt.append(h("span", "", "Falta pagar")); const tb = h("b"); cnt(tb, "fij_pend", pend); tt.append(tb); card.append(tt);
+    const sb = h("div", "sub", "Ya pagaste " + S(pag) + " este mes."); sb.style.margin = "8px 0 4px"; card.append(sb);
+  }
+  if (!L.length) card.append(vacio("receipt", "Aún no tienes pagos fijos", "Agrega tus suscripciones, el gimnasio y otras cuotas para saber cuál pagaste y cuál falta."));
+  L.slice().sort((a, b) => (a.pagado - b.pagado) || a.dia - b.dia).forEach((f) => {
+    const r = h("div", "irow"); r.style.cssText = "display:flex;align-items:center;gap:10px";
+    const t = h("div", "t"); t.style.cssText = "flex:1;min-width:0;cursor:pointer"; t.tabIndex = 0;
+    const top = h("div", "top"); top.append(h("b", "", f.nombre), h("span", "m", S2(f.monto)));
+    const sub = f.pagado ? "Pagado este mes" : (f.atrasado ? "Atrasado: era el día " + f.dia : "Vence el " + fecha(f.vence));
+    const sp = h("span", "s", sub); if (f.atrasado) sp.style.color = C_RED; if (f.pagado) sp.style.color = C_AC;
+    t.append(top, sp); t.onclick = () => abrirFijo(f, null);
+    const b = btnIco(f.pagado ? "s" : "p", f.pagado ? "check-circle" : "check", f.pagado ? "Pagado" : "Pagar"); b.style.cssText = "flex:none;min-width:92px";
+    b.onclick = () => rapido("fijo_pagar", { nombre: f.nombre, pagado: !f.pagado }, f.pagado ? "Marcado como pendiente" : "Marcado como pagado");
+    r.append(iconBox(f.pagado ? "check-circle" : "clock", f.pagado ? C_AC : (f.atrasado ? C_RED : C_AM)), t, b); card.append(r);
+  });
+  const ba = btnIco("s full", "plus", "Agregar pago fijo"); ba.style.marginTop = "12px"; ba.onclick = () => abrirFijo(null, null); card.append(ba);
+  el.append(card);
+}
+
 function pintarEstado(c) {
   const el = $("estado"); el.replaceChildren();
   if (c.estado !== "sin_config") return;
@@ -1339,6 +1425,7 @@ function pintarHoy(c) {
   const bl = h("div", "hoy-bar"); const bt = h("div", "blk-t"); bt.append(h("span", "", "Presupuesto usado"), h("b", "", Math.round(pct) + "%"));
   const tr2 = bar(pct, col); tr2.classList.add("gruesa");
   const lg2 = h("div", "leyenda"); lg2.append(h("span", "", S(c.gastado) + " gastado"), h("span", "", "de " + S(c.presupuesto))); bl.append(bt, tr2, lg2); card.append(bl);
+  if (c.fijosPendientes > 0) { const fp = h("div", "sub", "Reservado para pagos fijos que vencen antes de tu pago: " + S(c.fijosPendientes)); fp.style.marginTop = "8px"; card.append(fp); }
   if (c.programado > 0) { const pg = h("div", "sub", "Reservado para gastos de los próximos días: " + S(c.programado)); pg.style.marginTop = "8px"; card.append(pg); }
   const mini = h("div", "mini");
   [["Queda", c.disponible, "m_q", S], ["Gastado", c.gastado, "m_g", S], ["Al pago", c.restan, "m_p", (n) => Math.round(n) + " d"]].forEach(([lab, v, k, f]) => { const d = h("div"); const b = h("b"); cnt(b, k, v, f); d.append(h("span", "ml", lab), b); mini.append(d); });
