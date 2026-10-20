@@ -414,7 +414,16 @@ function aplicarLocal(a, d) {
       D.movimientos.unshift({ id: "tmp" + Date.now(), fecha: fe, hora: new Date().toTimeString().slice(0, 5), monto, comercio: nom || (ing ? "Ingreso" : "Gasto"), banco: "manual", medio: "efectivo/otro", categoria: d.categoria || "otros", fuente: ing ? "app-ingreso" : "app", tipo: ing ? "ingreso" : "gasto", notas: "" });
       recalcLocal(); return true;
     }
-    case "delete": D.movimientos = D.movimientos.filter((m) => m.id !== d.id); recalcLocal(); return true;
+    case "delete": {
+      const mv = D.movimientos.find((m) => m.id === d.id);
+      if (mv && mv.fuente === "app-deuda") {
+        const ab = /Abono ([d.]+)/.exec(mv.notas || ""), it = /intereses ([d.]+)/.exec(mv.notas || "");
+        const dv = (x) => { if (x) { if (ab) x.saldo = Math.round((x.saldo + Number(ab[1])) * 100) / 100; if (it) x.interesesPagados = Math.max(0, Math.round(((x.interesesPagados || 0) - Number(it[1])) * 100) / 100); } };
+        const nom = mv.comercio.replace(/^Pago /, "");
+        dv((D.deudasTodas || []).find((y) => y.nombre === nom)); dv((D.finanzas.deudas || []).find((y) => y.nombre === nom));
+      }
+      D.movimientos = D.movimientos.filter((m) => m.id !== d.id); recalcLocal(); return true;
+    }
     case "setcat": { const m = D.movimientos.find((x) => x.id === d.id); if (m) m.categoria = d.categoria; recalcLocal(); return true; }
     case "mov_editar": {
       const m = D.movimientos.find((x) => x.id === d.id); if (!m) return false;
@@ -487,17 +496,27 @@ function aplicarLocal(a, d) {
     default: return false;
   }
 }
+let ultimoSrv = null; // última respuesta del servidor (trae los ids reales)
 function rapido(accion, datos, mensaje) {
   const snap = JSON.stringify(D);
+  // Un movimiento recién anotado tiene id provisional ("tmp…"): se recuerda cuál es para buscar su id real cuando el servidor lo haya guardado.
+  const orig = datos && typeof datos.id === "string" && datos.id.startsWith("tmp") ? (D.movimientos || []).find((m) => m.id === datos.id) : null;
   let local = false;
   try { local = aplicarLocal(accion, datos || {}); } catch { local = false; }
   if (local) pintar();
   cerrarForm(); if (mensaje) say(mensaje, "ok");
   pendientes++;
-  colaApi = colaApi.then(() => api(accion, datos)).then((r) => {
+  colaApi = colaApi.then(() => {
+    if (!orig) return api(accion, datos);
+    const real = ((ultimoSrv && ultimoSrv.movimientos) || []).find((m) => !String(m.id).startsWith("tmp") && m.comercio === orig.comercio && m.monto === orig.monto && m.fecha === orig.fecha);
+    if (!real) { if (accion === "delete") return ultimoSrv || D; throw new Error("todavía se está guardando, intenta otra vez"); }
+    return api(accion, { ...datos, id: real.id });
+  }).then((r) => {
+    ultimoSrv = r;
     pendientes--; if (pendientes === 0) { D = r; try { ssSet(K_D, JSON.stringify(D)); } catch {} pintar(); }
   }).catch((e) => {
-    pendientes--; D = JSON.parse(snap); pintar(); say("No se pudo guardar: " + e.message, "bad");
+    pendientes--; say("No se pudo guardar: " + e.message, "bad");
+    if (pendientes === 0) { D = JSON.parse(snap); pintar(); api("dashboard").then((r) => { D = r; ultimoSrv = r; try { ssSet(K_D, JSON.stringify(D)); } catch {} pintar(); }).catch(() => {}); }
   });
   return colaApi.catch(() => {}).then(() => D);
 }
