@@ -886,7 +886,7 @@ function abrirCfg() {
     ],
     extra: (box) => {
       const menu = h("div", "menu");
-      [["building", "Sueldo y fecha de pago", abrirSueldo], ["wallet", "Mis gastos del mes", () => abrirMisGastos(abrirCfg)], ["receipt", "Pagos fijos", () => { cerrarForm(); irVista("ingdeu"); }], ["wallet", "Deudas", abrirDeudas], ["banknote", "Ingresos extra", abrirIngresos], ["target", "Mis metas", abrirMetas], ["file-text", "Subir boleta", abrirBoleta], ["user", "Mi perfil", abrirPerfil], ["settings", "Más ajustes", abrirCfgMas], ["sparkles", "Colores", abrirColores], ["coins", "Bolsas una por una", abrirBolsas], admin && ["building", "Bancos", () => abrirBancos(abrirCfg)], admin && ["users", "Usuarios", abrirUsuarios], ["compass", "Guía de inicio", abrirWizard], ["play", "Cómo funciona", () => abrirVideo(true)], ["check-circle", "Ya me pagaron", abrirNuevoCiclo], ["log-out", "Cerrar sesión", () => { cerrarForm(); cerrarSesion(""); }]].filter(Boolean).forEach(([i, t, f]) => {
+      [["building", "Sueldo y fecha de pago", abrirSueldo], ["wallet", "Mis gastos del mes", () => abrirMisGastos(abrirCfg)], ["receipt", "Pagos fijos", () => { cerrarForm(); irVista("presu"); }], ["wallet", "Deudas", abrirDeudas], ["banknote", "Ingresos extra", abrirIngresos], ["target", "Mis metas", abrirMetas], ["file-text", "Subir boleta", abrirBoleta], ["user", "Mi perfil", abrirPerfil], ["settings", "Más ajustes", abrirCfgMas], ["sparkles", "Colores", abrirColores], ["coins", "Bolsas una por una", abrirBolsas], admin && ["building", "Bancos", () => abrirBancos(abrirCfg)], admin && ["users", "Usuarios", abrirUsuarios], ["compass", "Guía de inicio", abrirWizard], ["play", "Cómo funciona", () => abrirVideo(true)], ["check-circle", "Ya me pagaron", abrirNuevoCiclo], ["log-out", "Cerrar sesión", () => { cerrarForm(); cerrarSesion(""); }]].filter(Boolean).forEach(([i, t, f]) => {
         const b = h("button", ""); b.type = "button"; b.append(ic(i), h("span", "", t), ic("chevron-right", "chv")); b.onclick = f; menu.append(b);
       });
       box.append(menu);
@@ -1101,7 +1101,7 @@ try { aplicarTema(localStorage.getItem(K_TEMA) || "esmeralda"); } catch { aplica
 const PAL = ["#7C9CD6", "#C79A6B", "#A58BC9", "#6DB5A8", "#D08A8A", "#B7B36B", "#7FB0C9", "#9AA3B5"];
 const BOLSA_COL = PAL;
 const VISTAS = ["inicio", "presu", "ingdeu", "metas", "stats"];
-const TITULOS = { inicio: "Inicio", presu: "Presupuesto", ingdeu: "Dinero", metas: "Metas", stats: "Estadísticas" };
+const TITULOS = { inicio: "Inicio", presu: "Gastos", ingdeu: "Dinero", metas: "Metas", stats: "Estadísticas" };
 let vista = "inicio";
 const vistaPorDefecto = "inicio";
 const metasFestejadas = new Set();
@@ -1362,7 +1362,7 @@ function pintarFijos() {
   const el = $("fijos"); if (!el) return; el.replaceChildren();
   const L = D.fijos || [];
   const card = h("div", "card");
-  card.append(cardHead("Pagos fijos del mes", "Marca cada pago cuando lo hagas. Lo pendiente que vence antes de tu próximo pago se reserva de tu plata."));
+  card.append(cardHead("Pagos fijos", "Lo que pagas todos los meses. Marca cada pago cuando lo hagas. Lo pendiente que vence antes de tu próximo pago se reserva de tu plata."));
   const pend = L.filter((f) => !f.pagado).reduce((t, f) => t + f.monto, 0), pag = L.filter((f) => f.pagado).reduce((t, f) => t + f.monto, 0);
   if (L.length) {
     const tt = h("div", "total"); tt.append(h("span", "", "Falta pagar")); const tb = h("b"); cnt(tb, "fij_pend", pend); tt.append(tb); card.append(tt);
@@ -1483,7 +1483,7 @@ function pintarPresu() {
   const el = $("presu"); el.replaceChildren();
   const P = D.presupuesto; if (!P) return;
   const card = h("div", "card");
-  card.append(cardHead("Presupuesto del mes", ["Pon cuánto gastas al mes en cada cosa (comida, transporte, tu carro…). Aquí ves cuánto llevas gastado y cuánto te queda.", "Toca una para ver sus gastos o cambiar el monto."]));
+  card.append(cardHead("Gastos variables", ["Lo que cambia cada mes (comida, transporte, salidas…). Pon un tope por cosa y aquí ves cuánto llevas gastado y cuánto te queda.", "Toca una para ver sus gastos o cambiar el monto."]));
   const lista = bolsasUnificadas();
   if (!lista.length) card.append(vacio("wallet", "Aún no pones tus gastos", "Escribe cuánto gastas al mes en cada cosa.", "Mis gastos del mes", () => abrirMisGastos(null)));
   else card.append(listaBolsas(lista, "hoy", 0));
@@ -1496,7 +1496,7 @@ function pintarBolsasIni() {
   const el = $("bolsasIni"); el.replaceChildren();
   const P = D.presupuesto; const uni = bolsasUnificadas(); if (!P || !uni.length) return;
   const card = h("div", "card");
-  card.append(cardHead("Presupuesto del mes", "Lo que llevas gastado contra lo que pusiste para cada cosa. Toca una para ver sus gastos."));
+  card.append(cardHead("Gastos variables", "Lo que llevas gastado contra lo que pusiste para cada cosa. Toca una para ver sus gastos."));
   card.append(listaBolsas(uni, "hoy", 5));
   const v = h("button", "t"); v.type = "button"; v.append(document.createTextNode("Ver todas las bolsas"), ic("chevron-right", "sm")); v.onclick = () => irVista("presu"); v.style.marginTop = "auto"; v.style.paddingTop = "12px";
   card.append(v); el.append(card);
