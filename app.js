@@ -23,9 +23,9 @@ const RE_URL = /^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/;
 const getUrl = () => (window.SCRIPT_URL && RE_URL.test(window.SCRIPT_URL) ? window.SCRIPT_URL : "");
 const CLIENT_ID = () => (window.GOOGLE_CLIENT_ID && window.GOOGLE_CLIENT_ID !== "PENDIENTE" ? window.GOOGLE_CLIENT_ID : "");
 
-const EMO = { comida: "utensils", super: "shopping-cart", transporte: "bus", salud: "heart-pulse", suscripciones: "tv", ocio: "gamepad", formd: "shirt", hogar: "home", transferencias: "send", efectivo: "banknote", otros: "tag" }; // categoría -> icono
-const COL = { comida: "#C79A6B", super: "#6DB5A8", transporte: "#7C9CD6", salud: "#D08A8A", suscripciones: "#A58BC9", ocio: "#B7B36B", formd: "#7FB0C9", hogar: "#B08968", transferencias: "#7FB0C9", efectivo: "#B7B36B", otros: "#9AA3B5" };
-const NOMBRE = { comida: "Comida", super: "Super", transporte: "Transporte", salud: "Salud", suscripciones: "Suscrip.", ocio: "Ocio", formd: "FORMD", hogar: "Hogar", transferencias: "Yape/Plin", efectivo: "Efectivo", otros: "Otros" };
+const EMO = { comida: "utensils", super: "shopping-cart", transporte: "bus", salud: "heart-pulse", suscripciones: "tv", ocio: "gamepad", formd: "shirt", hogar: "home", transferencias: "send", efectivo: "banknote", deudas: "wallet", otros: "tag" }; // categoría -> icono
+const COL = { comida: "#C79A6B", super: "#6DB5A8", transporte: "#7C9CD6", salud: "#D08A8A", suscripciones: "#A58BC9", ocio: "#B7B36B", formd: "#7FB0C9", hogar: "#B08968", transferencias: "#7FB0C9", efectivo: "#B7B36B", deudas: "#C78B8B", otros: "#9AA3B5" };
+const NOMBRE = { comida: "Comida", super: "Super", transporte: "Transporte", salud: "Salud", suscripciones: "Suscrip.", ocio: "Ocio", formd: "FORMD", hogar: "Hogar", transferencias: "Yape/Plin", efectivo: "Efectivo", deudas: "Deudas", otros: "Otros" };
 const MES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
 
 let D = null, ME = null, TOK = "", TOK_EXP = 0, esperaToken = null, gisIniciado = false, vistaPresu = "hoy", wizardMostrado = false;
@@ -378,6 +378,20 @@ function recalcLocal() {
   c.estado = c.presupuesto > 0 ? ((c.disponible < 0 || c.ratio > 1.05) ? "rojo" : c.ratio > 0.9 ? "amarillo" : "verde") : "sin_config";
 }
 function upsert(arr, orig, obj, key) { const i = arr.findIndex((x) => x[key || "nombre"] === orig); if (i >= 0) arr[i] = { ...arr[i], ...obj }; else arr.push(obj); }
+// Igual que el servidor: "pago crediyape 358" se reconoce como pago de esa deuda.
+function deudaPorTextoLocal(texto) {
+  const GEN = ["prestamo", "tarjeta", "planilla", "deuda", "credito", "banco", "cuota", "personal", "abuelo", "compra", "pago", "pague", "pagar", "mensual", "de", "del", "la", "el", "con", "para", "una", "un"];
+  const TRIG = ["pago", "pague", "pagado", "prestamo", "cuota", "abono", "abone", "deuda", "cancele", "devolvi", "devolucion", "adelanto"];
+  const nrm = (t) => String(t || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
+  const pal = nrm(texto).split(" ").filter(Boolean);
+  if (!pal.some((w) => TRIG.includes(w))) return null;
+  let mejor = null, mejorN = 0, empate = false;
+  (D.deudasTodas || []).filter((x) => x.saldo > 0).forEach((x) => {
+    const n = nrm(x.nombre).split(" ").filter((t) => t.length >= 2 && !GEN.includes(t)).filter((t) => pal.includes(t)).length;
+    if (n > mejorN) { mejor = x.nombre; mejorN = n; empate = false; } else if (n > 0 && n === mejorN) empate = true;
+  });
+  return mejorN > 0 && !empate ? mejor : null;
+}
 function aplicarLocal(a, d) {
   if (!D) return false;
   __A = medidas();
@@ -396,6 +410,7 @@ function aplicarLocal(a, d) {
       }
       if (!(monto > 0)) return false;
       const ing = d.tipo === "ingreso";
+      if (!ing && d.categoria === undefined) { const dm = deudaPorTextoLocal(nom); if (dm) return aplicarLocal("pagar_deuda", { nombre: dm, monto }); }
       D.movimientos.unshift({ id: "tmp" + Date.now(), fecha: fe, hora: new Date().toTimeString().slice(0, 5), monto, comercio: nom || (ing ? "Ingreso" : "Gasto"), banco: "manual", medio: "efectivo/otro", categoria: d.categoria || "otros", fuente: ing ? "app-ingreso" : "app", tipo: ing ? "ingreso" : "gasto", notas: "" });
       recalcLocal(); return true;
     }
@@ -419,7 +434,16 @@ function aplicarLocal(a, d) {
       D.finanzas.total = (D.finanzas.deudas || []).reduce((t, x) => t + x.saldo, 0); return true;
     }
     case "deuda_borrar": D.deudasTodas = (D.deudasTodas || []).filter((x) => x.nombre !== d.nombre); D.finanzas.deudas = (D.finanzas.deudas || []).filter((x) => x.nombre !== d.nombre); D.finanzas.total = (D.finanzas.deudas || []).reduce((t, x) => t + x.saldo, 0); return true;
-    case "pagar_deuda": { const x = (D.deudasTodas || []).find((y) => y.nombre === d.nombre); if (x) x.saldo = Math.max(0, x.saldo - Number(d.monto)); const f = (D.finanzas.deudas || []).find((y) => y.nombre === d.nombre); if (f) f.saldo = Math.max(0, f.saldo - Number(d.monto)); D.finanzas.total = (D.finanzas.deudas || []).reduce((t, y) => t + y.saldo, 0); return true; }
+    case "pagar_deuda": {
+      const dd0 = (D.deudasTodas || []).find((y) => y.nombre === d.nombre); if (!dd0) return false;
+      const monto0 = Number(d.monto), abono0 = Math.min(monto0, dd0.saldo), inter0 = Math.round((monto0 - abono0) * 100) / 100;
+      const bajar = (x) => { if (x) { x.saldo = Math.round((x.saldo - abono0) * 100) / 100; if (inter0 > 0) x.interesesPagados = Math.round(((x.interesesPagados || 0) + inter0) * 100) / 100; } };
+      bajar(dd0); bajar((D.finanzas.deudas || []).find((y) => y.nombre === d.nombre));
+      D.finanzas.total = (D.finanzas.deudas || []).reduce((t, y) => t + y.saldo, 0);
+      if (d.sinGasto !== true) { D.movimientos.unshift({ id: "tmp" + Date.now(), fecha: hoy, hora: new Date().toTimeString().slice(0, 5), monto: monto0, comercio: "Pago " + d.nombre, banco: "manual", medio: "pago deuda", categoria: "deudas", fuente: "app-deuda", tipo: "gasto", notas: "Abono " + abono0.toFixed(2) + (inter0 > 0 ? " · intereses " + inter0.toFixed(2) : "") }); }
+      recalcLocal(); return true;
+    }
+    case "pagar_deuda_viejo": { const x = (D.deudasTodas || []).find((y) => y.nombre === d.nombre); if (x) x.saldo = Math.max(0, x.saldo - Number(d.monto)); const f = (D.finanzas.deudas || []).find((y) => y.nombre === d.nombre); if (f) f.saldo = Math.max(0, f.saldo - Number(d.monto)); D.finanzas.total = (D.finanzas.deudas || []).reduce((t, y) => t + y.saldo, 0); return true; }
     case "ingreso_guardar": { D.finanzas.ingresos = D.finanzas.ingresos || []; upsert(D.finanzas.ingresos, d.original || d.nombre, { nombre: d.nombre, min: Number(d.min), max: d.max === "" || d.max === undefined ? Number(d.min) : Number(d.max), fecha: d.fecha || "", nota: d.nota || "" }); return true; }
     case "ingreso_borrar": D.finanzas.ingresos = (D.finanzas.ingresos || []).filter((x) => x.nombre !== d.nombre); return true;
     case "meta_guardar": { D.metas = D.metas || []; const ob = Number(d.objetivo), ah = Number(d.ahorrado || 0); upsert(D.metas, d.original || d.nombre, { nombre: d.nombre, objetivo: ob, ahorrado: ah, fecha: d.fecha || "", pct: ob > 0 ? Math.min(100, Math.round(ah / ob * 100)) : 0 }); return true; }
@@ -513,7 +537,7 @@ function abrirDeuda(d, volver) {
     campos: [
       { k: "nombre", label: "Nombre", valor: d ? d.nombre : "", ph: "Ej.: Préstamo del banco" },
       { k: "saldo", label: "Cuánto debes hoy (S/)", tipo: "number", valor: d ? d.saldo : "" },
-      { k: "pagado", label: "Anotar un pago de (S/), opcional", tipo: "number", ayuda: "Se resta de lo que debes al guardar." },
+      { k: "pagado", label: "Anotar un pago de (" + mon() + "), opcional", tipo: "number", ayuda: "Baja lo que debes y queda como gasto. Si pagas más de lo que debes, lo de más cuenta como intereses." },
       { k: "cuota", label: "Cuota mensual (S/)", tipo: "number", valor: d ? d.cuota : 0 },
       { k: "pago", label: "¿Cómo la pagas?", tipo: "select", opciones: OPC_PAGO, valor: d ? d.pago : "cuota" },
       { k: "auto", label: "¿Quién la paga?", tipo: "select", opciones: OPC_AUTO, valor: d ? d.autoTxt : "no", ayuda: "Si se descuenta por planilla, ya está restada de tu sueldo neto." },
@@ -523,8 +547,9 @@ function abrirDeuda(d, volver) {
       { k: "nota", label: "Nota, opcional", valor: d ? d.nota : "" },
     ],
     onGuardar: async (v) => {
-      const saldo = Math.max(0, Number(v.saldo || 0) - Number(v.pagado || 0));
+      const saldo = Math.max(0, Number(v.saldo || 0));
       await guardarYCerrar("deuda_guardar", { original: d ? d.nombre : undefined, nombre: v.nombre, saldo, cuota: Number(v.cuota || 0), pago: v.pago, auto: v.auto, fin: v.fin, prioridad: Number(v.prioridad || 0), tea: v.tea, nota: v.nota }, "Deuda guardada");
+      if (Number(v.pagado) > 0) rapido("pagar_deuda", { nombre: v.nombre, monto: Number(v.pagado) }, "Pago anotado");
       if (volver) volver();
     },
     onBorrar: d ? async () => { await guardarYCerrar("deuda_borrar", { nombre: d.nombre }, "Deuda borrada"); if (volver) volver(); } : null,
@@ -536,7 +561,7 @@ function abrirDeuda(d, volver) {
 function abrirDeudas() {
   const todas = (D.deudasTodas || []).slice().sort((a, b) => a.prioridad - b.prioridad);
   listaModal("Tus deudas", "Toca una para corregirla o anotar un pago.",
-    todas.map((d) => ({ titulo: d.nombre, detalle: (d.cuota ? S(d.cuota) + "/mes · " : "") + (d.planilla ? "por planilla" : d.fin ? "termina " + mesTxt(d.fin) : "sin fecha"), valor: S(d.saldo), onClick: () => abrirDeuda(d, abrirDeudas) })),
+    todas.map((d) => ({ titulo: d.nombre, detalle: (d.cuota ? S(d.cuota) + "/mes · " : "") + (d.planilla ? "por planilla" : d.fin ? "termina " + mesTxt(d.fin) : "sin fecha") + (d.interesesPagados > 0 ? " · intereses " + S2(d.interesesPagados) : ""), valor: S(d.saldo), onClick: () => abrirDeuda(d, abrirDeudas) })),
     "Nueva deuda", () => abrirDeuda(null, abrirDeudas), abrirCfg);
 }
 
@@ -1388,6 +1413,11 @@ function pintarEstado(c) {
   const el = $("estado"); el.replaceChildren();
   if (c.estado !== "sin_config") return;
   const card = h("div", "card");
+  const sueldo = (D.config && D.config.sueldo_neto) || 0;
+  if (sueldo > 0) {
+    card.append(vacio("building", "¿Ya te pagaron?", "Tu sueldo es de " + S(sueldo) + ", pero aún no me dices cuánta plata tienes para este ciclo. Dime cuánto tienes ahora y empiezo a calcular tu gasto diario."));
+    const b1 = btnIco("p", "check-circle", "Ya me pagaron"); b1.style.alignSelf = "center"; b1.style.marginBottom = "12px"; b1.onclick = abrirNuevoCiclo; card.append(b1); el.append(card); return;
+  }
   card.append(vacio("settings", "Cuenta tu plata", "Dinos tu sueldo y cuánto tienes hoy para calcular tu gasto diario."));
   const b = h("button", "p", "Empezar"); b.style.alignSelf = "center"; b.style.marginBottom = "12px"; b.onclick = abrirCfg; card.append(b); el.append(card);
 }
@@ -1635,7 +1665,7 @@ function pintarFinanzas() {
     const col = BOLSA_COL[(i + 3) % BOLSA_COL.length];
     const row = h("div", "irow tapr"); row.tabIndex = 0;
     const t = h("div", "t"); const tp = h("div", "top"); tp.append(h("b", "", d.nombre), h("span", "m", S(d.saldo)));
-    t.append(tp, h("span", "s", (d.cuota ? S(d.cuota) + "/mes" : "sin cuota") + (d.fin ? " · termina " + mesTxt(d.fin) : "")), bar(Math.min(100, d.saldo / Math.max(1, f.total) * 100 * 3), col, 4));
+    t.append(tp, h("span", "s", (d.cuota ? S(d.cuota) + "/mes" : "sin cuota") + (d.fin ? " · termina " + mesTxt(d.fin) : "") + (d.interesesPagados > 0 ? " · intereses pagados " + S2(d.interesesPagados) : "")), bar(Math.min(100, d.saldo / Math.max(1, f.total) * 100 * 3), col, 4));
     row.append(iconBox(d.planilla ? "building" : "wallet", col), t);
     const abrir = () => { const full = (D.deudasTodas || []).find((x) => x.nombre === d.nombre) || d; abrirDeuda(full, null); };
     row.onclick = abrir; row.onkeydown = (e) => { if (e.key === "Enter") abrir(); };
