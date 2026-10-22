@@ -373,7 +373,7 @@ function recalcLocal() {
   c.presupuesto = (cfg.dinero_ciclo || 0) + c.ingresosApp - (cfg.ahorro || 0) - (cfg.fijos_total || 0) - c.fijosPendientes;
   c.disponible = c.presupuesto - c.gastado - c.programado;
   c.porDia = Math.max(0, c.disponible) / Math.max(1, c.restan);
-  c.proyeccion = (c.gastado - ((c.porCategoria || {}).deudas || 0)) / Math.max(1, c.pasados) * c.total; // los pagos de deudas son únicos
+  { const pcx = c.porCategoria || {}, vr = c.gastado - (pcx.deudas || 0) - (pcx.transporte || 0); c.proyeccion = c.pasados >= 5 ? vr / Math.max(1, c.pasados) * c.total : vr; } // solo cuenta lo variable
   c.ratio = c.presupuesto > 0 ? c.proyeccion / c.presupuesto : 0;
   c.estado = c.presupuesto > 0 ? ((c.disponible < 0 || c.ratio > 1.05) ? "rojo" : c.ratio > 0.9 ? "amarillo" : "verde") : "sin_config";
 }
