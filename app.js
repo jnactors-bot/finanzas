@@ -269,10 +269,14 @@ $("salir").onclick = (ev) => { ev.preventDefault(); cerrarSesion(""); };
 $("loginReintentar").onclick = () => iniciar();
 
 const ACC_RAPIDAS = ["delete", "setcat", "mov_editar"];
+let __wgen = 0; // sube con cada cambio que haces: sirve para descartar lecturas viejas
 async function cargar(accion = "dashboard", extra = {}) {
   if (ACC_RAPIDAS.includes(accion)) { rapido(accion, extra); return D; }
   try {
-    D = await api(accion, extra);
+    const g0 = __wgen;
+    const r0 = await api(accion, extra);
+    if (g0 !== __wgen || pendientes > 0) return D; // mientras cargaba anotaste algo: esta respuesta ya está vieja
+    D = r0;
     try { ssSet(K_D, JSON.stringify(D)); } catch {}
     pintar();
     if (ME && ME.admin && accion === "dashboard") contarPendientes();
@@ -498,6 +502,7 @@ function aplicarLocal(a, d) {
 }
 let ultimoSrv = null; // última respuesta del servidor (trae los ids reales)
 function rapido(accion, datos, mensaje) {
+  __wgen++;
   const snap = JSON.stringify(D);
   // Un movimiento recién anotado tiene id provisional ("tmp…"): se recuerda cuál es para buscar su id real cuando el servidor lo haya guardado.
   const orig = datos && typeof datos.id === "string" && datos.id.startsWith("tmp") ? (D.movimientos || []).find((m) => m.id === datos.id) : null;
@@ -513,7 +518,7 @@ function rapido(accion, datos, mensaje) {
     return api(accion, { ...datos, id: real.id });
   }).then((r) => {
     ultimoSrv = r;
-    pendientes--; if (pendientes === 0) { D = r; try { ssSet(K_D, JSON.stringify(D)); } catch {} pintar(); }
+    pendientes--; if (pendientes === 0) { __wgen++; D = r; try { ssSet(K_D, JSON.stringify(D)); } catch {} pintar(); }
   }).catch((e) => {
     pendientes--; say("No se pudo guardar: " + e.message, "bad");
     if (pendientes === 0) { D = JSON.parse(snap); pintar(); api("dashboard").then((r) => { D = r; ultimoSrv = r; try { ssSet(K_D, JSON.stringify(D)); } catch {} pintar(); }).catch(() => {}); }
